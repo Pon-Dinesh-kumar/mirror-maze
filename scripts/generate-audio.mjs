@@ -9,7 +9,8 @@ const SR = 22050;
 const TAU = Math.PI * 2;
 const out = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'assets', 'audio');
 fs.mkdirSync(out, { recursive: true });
-for (const f of fs.readdirSync(out)) if (/\.(wav|mp3)$/.test(f)) fs.unlinkSync(path.join(out, f));
+// A full run starts from an empty folder; an MM_ONLY run (see write) replaces only the files it names.
+if (!process.env.MM_ONLY) for (const f of fs.readdirSync(out)) if (/\.(wav|mp3)$/.test(f)) fs.unlinkSync(path.join(out, f));
 
 let seed = 11;
 const rand = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
@@ -18,7 +19,16 @@ const midi = n => 440 * 2 ** ((n - 69) / 12);
 const clamp = v => Math.max(-1, Math.min(1, v));
 let total = 0;
 
+/**
+ * Sounds the game no longer uses (the cursed gem, thornvine fire, thawing ice and the vine rustle). They are still
+ * rendered, because every sound draws from one seeded noise generator and skipping one would change every sound after
+ * it, but never written.
+ */
+const RETIRED = new Set(['curse', 'burn', 'thaw', 'grow', 'devour']);
+/** `MM_ONLY=glide,seal` writes just those files and leaves every other asset untouched. */
+const ONLY = process.env.MM_ONLY ? new Set(process.env.MM_ONLY.split(',')) : undefined;
 function write(name, data, { peak = .9, kbps = 64, loop = false } = {}) {
+  if (RETIRED.has(name) || (ONLY && !ONLY.has(name))) return;
   if (loop) {
     // Fold the tail into the head so the loop point is seamless.
     const fade = Math.floor(SR * .5);
@@ -204,10 +214,18 @@ const bird = f => render(.35, t => Math.sin(TAU * (f + 900 * Math.sin(t * 40)) *
   write('amb0', d, { loop: true, kbps: 48, peak: .6 });
 }
 { // Rainforest: heavy rain, drips, low thunder roll
-  const d = lowpass(noiseBuf(22), 3200).map(v => v * .6);
-  const hiss = highpass(noiseBuf(22), 4000);
-  for (let i = 0; i < d.length; i++) d[i] += hiss[i] * .25;
-  for (let i = 0; i < 420; i++) mix(d, render(.03, t => Math.sin(TAU * (1800 + rand() * 2500) * t) * Math.exp(-t * 160)), rand() * 21.5, .25 * rand());
+  // The rain used to be flat white noise up to 11 kHz with a constant hiss on top, which played as TV static under the
+  // whole chapter. Now a darker wash that swells slowly, with the leaf patter held below it.
+  const swell = t => .8 + .2 * Math.sin(t * .8) * Math.sin(t * .31 + 1);
+  const d = lowpass(lowpass(noiseBuf(22), 1500), 2600).map((v, i) => v * swell(i / SR));
+  const leaves = lowpass(highpass(noiseBuf(22), 3000), 6000);
+  for (let i = 0; i < d.length; i++) d[i] += leaves[i] * .12 * swell(i / SR + 2.3);
+  // Each drip keeps one pitch (drawing a new one every sample turned it into a crackle). It still makes one draw per
+  // sample, so every later sound renders exactly as before.
+  for (let i = 0; i < 420; i++) {
+    let f;
+    mix(d, render(.03, t => { const r = rand(); f ??= 1800 + r * 2500; return Math.sin(TAU * f * t) * Math.exp(-t * 160); }), rand() * 21.5, .25 * rand());
+  }
   mix(d, lowpass(noiseBuf(6), 120).map((v, i) => v * Math.sin(Math.PI * i / (6 * SR)) * 6), 9, .6);
   write('amb1', d, { loop: true, kbps: 48, peak: .6 });
 }
@@ -352,5 +370,116 @@ write('riser', highpass(render(2.2, t => (noise() * .3 + Math.sin(TAU * (200 + 8
   mix(d, lowpass(noiseBuf(.5), 1200).map((v, i) => v * Math.exp(-i / SR * 10)), 0, .8);
   [36, 43, 48].forEach(n => mix(d, synthBass(midi(n), 2.2), 0, .4));
   write('boom', reverb(d, .4, 1.6), { peak: .95 });
+}
+// ---------- Chapter modifiers (added last so every earlier sound renders exactly as before) ----------
+{ // Retired (the vine rustle of the old root networks); still rendered to keep the noise stream of later sounds unchanged
+  const d = buffer(.9);
+  mix(d, bandpass(noiseBuf(.8), t => 1800 + 1400 * t, 2).map((v, i) => v * Math.sin(Math.PI * Math.min(1, i / SR / .8)) * .9), 0, 1);
+  mix(d, marimba(midi(55), .5), .05, .5); mix(d, marimba(midi(62), .5), .2, .45);
+  write('grow', reverb(d, .25), { peak: .7 });
+}
+{ // A thornvine catches fire: crackles over a soft roar
+  const d = buffer(1.3);
+  mix(d, lowpass(noiseBuf(1.3), 600).map((v, i) => v * env(i / SR, .08, 2.2) * 1.4), 0, 1);
+  for (let k = 0; k < 26; k++) mix(d, highpass(noiseBuf(.025), 2500).map((v, i) => v * Math.exp(-i / SR * 160)), rand() * 1.1, .6 + rand() * .6);
+  write('burn', d, { peak: .75 });
+}
+{ // A solar seal wakes: a warm two-bell chime with a shimmer
+  const d = buffer(1.8);
+  mix(d, bell(midi(64), 1.7, 1.8), 0, .7); mix(d, bell(midi(71), 1.5, 2), .06, .45); mix(d, sparkle(.8, 2600, 8), .1, .3);
+  write('seal', reverb(d, .4), { peak: .8 });
+}
+{ // A sandstone gate grinds open or shut and settles with a thud
+  const d = buffer(1.1);
+  mix(d, lowpass(noiseBuf(.9), 420).map((v, i) => v * Math.sin(Math.PI * Math.min(1, i / SR / .9)) * (1 + .4 * Math.sin(i / SR * 70))), 0, 1.4);
+  mix(d, kick(.9), .82, .9);
+  write('gate', reverb(d, .2), { peak: .75 });
+}
+{ // Retired (the old one-shot Devourer sound, replaced by 'abyss'); still rendered to keep later sounds unchanged
+  const d = buffer(2);
+  let phase = 0;
+  mix(d, render(1.4, t => { phase += TAU * (260 * Math.exp(-t * 2.4) + 34) / SR; return Math.sin(phase) * Math.min(1, t * 6) * (1 - t / 1.4); }), 0, .8);
+  mix(d, bandpass(noiseBuf(1.3), t => 2600 * Math.exp(-t * 2) + 120, 1.5).map((v, i) => v * (i / SR / 1.3) ** 2 * 1.6), 0, 1);
+  mix(d, kick(1.3), 1.3, 1); mix(d, synthBass(midi(31), .7), 1.3, .5);
+  write('devour', reverb(d, .35, 1.4), { peak: .9 });
+}
+{ // An ice floe glides along its track: a bright skate hiss that slows, then a soft knock and a crystal click as it stops
+  const d = buffer(.75);
+  mix(d, bandpass(noiseBuf(.5), t => 3800 - 2600 * t, 2.5).map((v, i) => v * Math.sin(Math.PI * Math.min(1, i / SR / .5)) * 1.3), 0, 1);
+  mix(d, thud(240), .46, .55);
+  for (const at of [.47, .51]) mix(d, render(.05, t => Math.sin(TAU * (3200 + rand() * 1500) * t) * Math.exp(-t * 110)), at, .45);
+  write('glide', reverb(d, .3), { peak: .7 });
+}
+// ---------- Rootbound totems: one sound per phase of a totem's turn, timed to src/world/Totems.tsx ----------
+{ // Awaken (tap): a carved-wood double click like a key turning in an old lock, then a restrained low rumble rising
+  const d = buffer(.9);
+  for (const [at, f] of [[0, 1180], [.07, 860]]) {
+    mix(d, bandpass(noiseBuf(.06), f * 1.6, 5).map((v, i) => v * Math.exp(-i / SR * 70) * 2.2), at, 1.6);
+    mix(d, render(.12, t => Math.sin(TAU * f * t) * Math.exp(-t * 45) + Math.sin(TAU * f * 2.7 * t) * Math.exp(-t * 90) * .3), at, 1);
+  }
+  // The rumble swells under the clicks and has mostly gone by the time the stones start to grind.
+  mix(d, lowpass(lowpass(noiseBuf(.6), 140), 110).map((v, i) => v * Math.sin(Math.PI * Math.min(1, i / SR / .6)) * 7), .06, .5);
+  mix(d, render(.6, t => (Math.sin(TAU * 55 * t) + Math.sin(TAU * 82.5 * t) * .5) * Math.min(1, t * 5) * Math.max(0, 1 - t / .6) * .35), .08, .7);
+  write('awaken', reverb(d, .25, 1.2), { peak: .75 });
+}
+{ // Grind (strain and swing, 1.2 s): stone grinding over a wooden creak and a low emerald hum that swells and fades
+  const len = 1.3, d = buffer(len);
+  const shape = t => Math.min(1, t / .18) * Math.min(1, Math.max(0, (len - .08 - t) / .3));
+  mix(d, lowpass(noiseBuf(len), 520).map((v, i) => { const t = i / SR; return v * shape(t) * (1 + .5 * Math.sin(t * 38) + (rand() < .015 ? 4 * rand() : 0)) * 2.4; }), 0, 1);
+  mix(d, bandpass(render(len, t => { const f = 120 + 55 * Math.sin(t * 9) + 30 * Math.sin(t * 23); return ((Math.sin(TAU * f * t) > .55 ? 1 : 0) - .22) * shape(t); }), 700, 2.2), 0, .55);
+  mix(d, render(len, t => (Math.sin(TAU * 98 * t) + Math.sin(TAU * 147 * t) * .6 + Math.sin(TAU * 196.4 * t) * .25) * (.75 + .25 * Math.sin(t * 11)) * shape(t) * .3), 0, 1);
+  write('grind', reverb(d, .3, 1.3), { peak: .7 });
+}
+{ // Settle (landing): a deep stone impact with a short grit spray, then a bright emerald shimmer that rings out
+  const d = buffer(1.6);
+  mix(d, kick(1.2), 0, 1); mix(d, thud(70), 0, 1);
+  mix(d, lowpass(noiseBuf(.35), 900).map((v, i) => v * Math.exp(-i / SR * 14) * 1.4), 0, .8);
+  for (let k = 0; k < 10; k++) mix(d, highpass(noiseBuf(.02), 3000).map((v, i) => v * Math.exp(-i / SR * 200)), .02 + rand() * .2, .25 + rand() * .3);
+  [76, 83, 88].forEach((n, i) => mix(d, bell(midi(n), 1.2, 2.6, .9), .1 + i * .06, .3));
+  mix(d, sparkle(.9, 2900, 9), .14, .28);
+  write('settle', reverb(d, .38, 1.3), { peak: .85 });
+}
+// ---------- The Devourer's absorption: one sequence timed to src/world/abyss.ts (impact 0, grow .45, pull 1.45,
+// darken 2.65, collapse 3.55, silence from 4.1), and a short pulse for each beam it swallows ----------
+{
+  const len = 4.55, d = buffer(len);
+  const span = (t, a, b, fadeIn = .15, fadeOut = .25) => Math.min(1, Math.max(0, (t - a) / fadeIn)) * Math.min(1, Math.max(0, (b - t) / fadeOut));
+  // Impact: a sharp energy strike, a sub pulse (with its octave, so phone speakers carry it) and a short reversed swell.
+  mix(d, highpass(noiseBuf(.06), 3000).map((v, i) => v * Math.exp(-i / SR * 70) * 1.6), 0, 1);
+  mix(d, render(.12, t => Math.sin(TAU * (2400 * Math.exp(-t * 18) + 500) * t) * Math.exp(-t * 30) * .5), 0, 1);
+  mix(d, render(.8, t => (Math.sin(TAU * 48 * t) + Math.sin(TAU * 96 * t) * .45) * Math.exp(-t * 4) * .9), 0, 1);
+  mix(d, lowpass(noiseBuf(.4), 900).map((v, i) => v * Math.pow(i / (.4 * SR), 2.5) * 1.2), .06, .7);
+  // Growth: a rising low rumble and a slowly swelling drone with fine crystalline particles above it.
+  mix(d, lowpass(lowpass(noiseBuf(3.1), 260), 200).map((v, i) => { const t = i / SR; return v * 6 * Math.min(1, t / 1) * span(t + .45, .45, 3.55, .3, .6); }), .45, 1);
+  mix(d, render(3.6, t => {
+    const f = 55 * (1 + .05 * Math.min(1, t / 1)), g = span(t + .45, .45, 4.05, .6, .5);
+    return (Math.sin(TAU * f * t) + Math.sin(TAU * f * 1.502 * t) * .55 + Math.sin(TAU * f * 2.004 * t) * .35) * (.6 + .4 * Math.sin(t * 1.7)) * g * .32;
+  }), .45, 1);
+  for (let k = 0; k < 22; k++) {
+    const at = .55 + rand() * 1.9;
+    mix(d, render(.25, t => Math.sin(TAU * (2200 + rand() * 2800) * t) * Math.exp(-t * 22)), at, .05 + .05 * (1 - (at - .55) / 1.9));
+  }
+  // Pull: three suction sweeps rushing inward over a falling tone as the light collapses into the hole.
+  for (const at of [1.5, 1.86, 2.22]) {
+    const n = .52;
+    mix(d, bandpass(noiseBuf(n), t => 3200 * Math.exp(-t * 5) + 240, 3).map((v, i) => v * Math.sin(Math.PI * i / (n * SR)) * 2.4), at, .75);
+  }
+  { let phase = 0; mix(d, render(1.3, t => { phase += TAU * (90 + 610 * Math.exp(-t * 2.6)) / SR; return Math.sin(phase) * Math.sin(Math.PI * Math.min(1, t / 1.3)) * .38; }), 1.45, 1); }
+  // Darkness: a hollow, vacuum-like resonance; nothing high is left.
+  mix(d, bandpass(noiseBuf(1.3), 185, 9).map((v, i) => { const t = i / SR; return v * 9 * span(t, 0, 1.3, .35, .3); }), 2.6, 1);
+  mix(d, render(1.2, t => (Math.sin(TAU * 41 * t) + Math.sin(TAU * 82 * t) * .5) * span(t, 0, 1.2, .3, .25) * .45), 2.65, 1);
+  // Collapse: a short, heavy low impact and a compressed metallic, crystalline ring, then near silence.
+  mix(d, kick(1.3), 3.55, 1);
+  mix(d, render(.7, t => (Math.sin(TAU * 38 * t) + Math.sin(TAU * 76 * t) * .5) * Math.exp(-t * 6) * .9), 3.55, 1);
+  for (const [f, g] of [[523, .3], [1307, .2], [2091, .14], [3137, .08]]) mix(d, render(1, t => Math.sin(TAU * f * t + 2 * Math.sin(TAU * f * 1.41 * t) * Math.exp(-t * 8)) * Math.exp(-t * 5)), 3.58, g);
+  // Nothing below 30 Hz (it only eats a phone speaker's headroom), and a closing fade into the silence before the defeat.
+  const out = highpass(reverb(d, .3, 1.5), 30).map((v, i) => v * Math.min(1, Math.max(0, (len - i / SR) / .45)));
+  write('abyss', out, { peak: .85, kbps: 80 });
+}
+{ // Swallow: one beam's last light pulled through the horizon: a rushing inward sweep closing on a soft thump
+  const n = .5, d = buffer(.62);
+  mix(d, bandpass(noiseBuf(n), t => 2600 * Math.exp(-t * 6) + 280, 2.5).map((v, i) => v * Math.sin(Math.PI * i / (n * SR)) * 2), 0, 1);
+  mix(d, render(.25, t => (Math.sin(TAU * 70 * t) + Math.sin(TAU * 140 * t) * .4) * Math.exp(-t * 14)), .4, .8);
+  write('swallow', reverb(d, .25), { peak: .7 });
 }
 console.log(`Generated ${fs.readdirSync(out).length} MP3 files, ${(total / 1024).toFixed(0)} KB total`);

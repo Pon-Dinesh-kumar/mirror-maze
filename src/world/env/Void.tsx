@@ -43,7 +43,8 @@ function Planet({ p, r, color, ring, emissive }: { p: [number, number, number]; 
   </group>;
 }
 
-export function TheVoid({ look, eye }: { look: Look; eye: EyeState }) {
+/** Memoised so the static scenery is not reconciled again on every move. */
+export const TheVoid = React.memo(function TheVoid({ look, eye }: { look: Look; eye: EyeState }) {
   const belt = useRef<Group>(null);
   const asteroids = useMemo(() => {
     const r = rng(91);
@@ -62,4 +63,4 @@ export function TheVoid({ look, eye }: { look: Look; eye: EyeState }) {
     <Particles count={700} area={[500, 300, 500]} color="#ffffff" size={2.2} speed={0} sway={0} seed={33} />
     <Particles count={60} area={[26, 12, 26]} center={[0, 2, 0]} color={look.particles} size={1.4} speed={.25} sway={1.2} seed={34} />
   </group>;
-}
+});

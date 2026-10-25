@@ -2,7 +2,7 @@
 export interface Result { stars: number; moves: number }
 export type Progress = Record<string, Result>;
 
-export const LEVELS_PER_WORLD = 27;
+export const LEVELS_PER_WORLD = 18;
 export const SHARDS_PER_WORLD = LEVELS_PER_WORLD * 3;
 export const WORLDS = 5;
 
@@ -26,6 +26,6 @@ export function worldShards(progress: Progress, world: number) {
 
 export const worldCleared = (progress: Progress, world: number) => !!progress[(world + 1) * LEVELS_PER_WORLD];
 
-/** A world's Heart is forged only when every one of its 27 levels holds all three shards. */
+/** A world's Heart is forged only when every one of its 18 levels holds all three shards. */
 export const heartsEarned = (progress: Progress) =>
   Array.from({ length: WORLDS }, (_, w) => w).filter(w => worldShards(progress, w) === SHARDS_PER_WORLD);

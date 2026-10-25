@@ -5,6 +5,8 @@ import { fonts } from './fonts';
 
 const nativeDriver = Platform.OS !== 'web';
 const useSvgId = () => useId().replace(/[^a-zA-Z0-9]/g, '');
+// Gradient <Stop offset> strings need a leading zero ("0.45", not ".45"): on Android, react-native-svg rejects ".45",
+// draws the stop at 0 and logs a warning on every render.
 
 const starPoints = (cx: number, cy: number, outer: number, inner: number) =>
   Array.from({ length: 10 }, (_, i) => {
@@ -20,7 +22,7 @@ export function Star({ size = 24, filled = true, style }: { size?: number; fille
       <Defs>
         <LinearGradient id={`s${id}`} x1="0" y1="0" x2="0" y2="1">
           <Stop offset="0" stopColor={filled ? '#fff7b0' : '#b9c9e6'} />
-          <Stop offset=".45" stopColor={filled ? '#ffd02a' : '#7f97c4'} />
+          <Stop offset="0.45" stopColor={filled ? '#ffd02a' : '#7f97c4'} />
           <Stop offset="1" stopColor={filled ? '#ff8d00' : '#4f6596'} />
         </LinearGradient>
       </Defs>
@@ -39,7 +41,7 @@ export function Gem({ size = 24, color = 'pink', style }: { size?: number; color
     <Svg width={size} height={size} viewBox="0 0 100 100">
       <Defs>
         <LinearGradient id={`g${id}`} x1="0" y1="0" x2="1" y2="1">
-          <Stop offset="0" stopColor={c[0]} /><Stop offset=".5" stopColor={c[1]} /><Stop offset="1" stopColor={c[2]} />
+          <Stop offset="0" stopColor={c[0]} /><Stop offset="0.5" stopColor={c[1]} /><Stop offset="1" stopColor={c[2]} />
         </LinearGradient>
       </Defs>
       <Polygon points="50,4 82,34 66,94 34,94 18,34" fill={`url(#g${id})`} stroke={c[3]} strokeWidth={6} strokeLinejoin="round" />
@@ -64,7 +66,7 @@ export function Sunburst({ size = 360, color = '#fff6c2', spin = true }: { size?
       <Defs>
         <RadialGradient id={`r${id}`} cx="0" cy="0" r="100" gradientUnits="userSpaceOnUse">
           <Stop offset="0" stopColor={color} stopOpacity=".95" />
-          <Stop offset=".55" stopColor={color} stopOpacity=".35" />
+          <Stop offset="0.55" stopColor={color} stopOpacity=".35" />
           <Stop offset="1" stopColor={color} stopOpacity="0" />
         </RadialGradient>
       </Defs>
@@ -116,7 +118,7 @@ export function TitleArt({ lines, width = 320, size = 64, fill = ['#fffbd0', '#f
     <Svg width={width} height={width * h / 400} viewBox={`0 0 400 ${h}`}>
       <Defs>
         <LinearGradient id={`t${id}`} x1="0" y1="0" x2="0" y2="1">
-          <Stop offset="0" stopColor={fill[0]} /><Stop offset=".45" stopColor={fill[1]} /><Stop offset="1" stopColor={fill[2]} />
+          <Stop offset="0" stopColor={fill[0]} /><Stop offset="0.45" stopColor={fill[1]} /><Stop offset="1" stopColor={fill[2]} />
         </LinearGradient>
       </Defs>
       {lines.map((line, i) => <LayeredWord key={i} x={200} y={lineH * (i + 1) - size * .1} size={size} text={line}
@@ -176,10 +178,10 @@ export function Logo({ width = 330 }: { width?: number }) {
       <Svg width={width} height={width * .45} viewBox="0 116 400 180">
         <Defs>
           <LinearGradient id={`s${id}`} x1="0" y1="0" x2="0" y2="1">
-            <Stop offset="0" stopColor="#ffffff" /><Stop offset=".45" stopColor="#dfe9f6" /><Stop offset=".55" stopColor="#8fa3bf" /><Stop offset="1" stopColor="#e6eef8" />
+            <Stop offset="0" stopColor="#ffffff" /><Stop offset="0.45" stopColor="#dfe9f6" /><Stop offset="0.55" stopColor="#8fa3bf" /><Stop offset="1" stopColor="#e6eef8" />
           </LinearGradient>
           <LinearGradient id={`g${id}`} x1="0" y1="0" x2="0" y2="1">
-            <Stop offset="0" stopColor="#fff6cf" /><Stop offset=".42" stopColor="#ffd56a" /><Stop offset=".58" stopColor="#c98a22" /><Stop offset="1" stopColor="#ffe08a" />
+            <Stop offset="0" stopColor="#fff6cf" /><Stop offset="0.42" stopColor="#ffd56a" /><Stop offset="0.58" stopColor="#c98a22" /><Stop offset="1" stopColor="#ffe08a" />
           </LinearGradient>
         </Defs>
         <LayeredWord x={200} y={186} size={62} text="MIRROR" fill={`url(#s${id})`} stroke="#141a33" depth={4} font={fonts.cinema} weight={.09} letterSpacing={4} />

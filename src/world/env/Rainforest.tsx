@@ -4,6 +4,7 @@ import { useFrame } from '../Canvas';
 import { Look } from '../look';
 import { Clouds, Instances, Particles, Rain, rng, Waterfall } from './common';
 import { audio } from '../../services/audio';
+import { voice } from '../../services/voice';
 
 const trunkGeo = new CylinderGeometry(.5, .8, 1, 7);
 const blobGeo = new IcosahedronGeometry(1, 1);
@@ -40,7 +41,8 @@ function Lightning({ storm, onLight }: { storm: Storm; onLight: (v: number) => v
       bolt.current?.geometry.dispose();
       if (bolt.current) bolt.current.geometry = g;
       const delay = .3 + (d - 45) / 50 * 1.5;
-      setTimeout(() => audio.play(d < 70 ? 'thunder1' : 'thunder2', .9), delay * 1000);
+      // Distant thunder rolls under the narrator's words instead of over them.
+      setTimeout(() => audio.play(d < 70 ? 'thunder1' : 'thunder2', voice.speaking() ? .4 : .9), delay * 1000);
     }
     const age = t - strike.current;
     const f = age < .08 ? 1 : age < .14 ? .25 : age < .22 ? .85 : Math.max(0, .85 - (age - .22) * 3);
@@ -51,7 +53,8 @@ function Lightning({ storm, onLight }: { storm: Storm; onLight: (v: number) => v
   return <mesh ref={bolt} material={mat} visible={false} frustumCulled={false} />;
 }
 
-export function Rainforest({ look, storm, onLight }: { look: Look; storm: Storm; onLight: (v: number) => void }) {
+/** Memoised so the static scenery is not reconciled again on every move. */
+export const Rainforest = React.memo(function Rainforest({ look, storm, onLight }: { look: Look; storm: Storm; onLight: (v: number) => void }) {
   const jungle = useMemo(() => {
     const r = rng(41);
     const trunks: { p: [number, number, number]; s: [number, number, number]; r?: [number, number, number] }[] = [];
@@ -93,6 +96,6 @@ export function Rainforest({ look, storm, onLight }: { look: Look; storm: Storm;
     <Particles count={60} area={[24, 10, 24]} center={[0, 1, 0]} color={look.particles} size={1.1} speed={.12} sway={1.6} seed={9} />
     <Lightning storm={storm} onLight={onLight} />
   </group>;
-}
+});
 
 export const _unused = (g: Group) => g;

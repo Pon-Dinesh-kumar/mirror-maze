@@ -1,7 +1,7 @@
-import React, { useLayoutEffect, useMemo, useRef } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { AdditiveBlending, NormalBlending, BufferAttribute, BufferGeometry, Color, ConeGeometry, DoubleSide, Group, InstancedMesh, Material, Mesh, MeshStandardMaterial, Object3D, ShaderMaterial, Shape, ShapeGeometry, SphereGeometry, Sprite } from 'three';
 import { useFrame, useThree } from '../Canvas';
-import { cloudTexture, glowTexture, skyMaterial, time, waterMaterial } from '../fx';
+import { cloudTexture, disposeShader, glowTexture, skyMaterial, time, waterMaterial } from '../fx';
 import { Look } from '../look';
 
 export const rng = (seed: number) => () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
@@ -33,13 +33,15 @@ export function Clouds({ count, radius, y, spread = 6, scale = [22, 9], color = 
   count: number; radius: [number, number]; y: number; spread?: number; scale?: [number, number]; color?: string; opacity?: number; seed?: number; drift?: number; fog?: boolean;
 }) {
   const group = useRef<Group>(null);
+  // Keyed on the tuple values: callers pass inline arrays, which are new objects on every render.
+  const [r0, r1] = radius, [sx, sy] = scale;
   const items = useMemo(() => {
     const r = rng(seed * 97 + 13);
     return Array.from({ length: count }, () => {
-      const a = r() * Math.PI * 2, d = radius[0] + r() * (radius[1] - radius[0]), s = .6 + r() * .8;
-      return { p: [Math.cos(a) * d, y + (r() - .5) * spread, Math.sin(a) * d] as [number, number, number], s: [scale[0] * s, scale[1] * s] as [number, number], o: opacity * (.6 + r() * .4) };
+      const a = r() * Math.PI * 2, d = r0 + r() * (r1 - r0), s = .6 + r() * .8;
+      return { p: [Math.cos(a) * d, y + (r() - .5) * spread, Math.sin(a) * d] as [number, number, number], s: [sx * s, sy * s] as [number, number], o: opacity * (.6 + r() * .4) };
     });
-  }, [count, radius, y, spread, scale, opacity, seed]);
+  }, [count, r0, r1, y, spread, sx, sy, opacity, seed]);
   useFrame((_, dt) => { if (group.current) group.current.rotation.y += dt * drift; });
   return <group ref={group}>
     {items.map((c, i) => <sprite key={i} position={c.p} scale={[c.s[0], c.s[1], 1]}>
@@ -77,19 +79,27 @@ export function Particles({ count, area, center = [0, 0, 0], color, size = 1, sp
     g.setAttribute('aSeed', new BufferAttribute(s, 1));
     return g;
   }, [count, seed]);
+  // Keyed on the area values, not the array: callers pass an inline array, and a new material on every render
+  // leaked the old one and re-initialised it on the GPU.
+  const [ax, ay, az] = area;
   const material = useMemo(() => new ShaderMaterial({
-    uniforms: { uTime: time, uSpeed: { value: speed }, uSize: { value: size }, uSway: { value: sway }, uArea: { value: area }, uScale: { value: 300 }, uColor: { value: new Color(color) }, uMap: { value: glowTexture } },
+    uniforms: { uTime: time, uSpeed: { value: speed }, uSize: { value: size }, uSway: { value: sway }, uArea: { value: [ax, ay, az] }, uScale: { value: 300 }, uColor: { value: new Color(color) }, uMap: { value: glowTexture } },
     vertexShader: particleVertex,
     fragmentShader: /* glsl */`uniform vec3 uColor; uniform sampler2D uMap; varying float vAlpha;
       void main(){ float a = texture2D(uMap, gl_PointCoord).a * vAlpha; if (a < .01) discard; gl_FragColor = vec4(uColor, a); }`,
     transparent: true, depthWrite: false, blending: additive ? AdditiveBlending : NormalBlending, toneMapped: false,
-  }), [speed, size, sway, area, color, additive]);
+  }), [speed, size, sway, ax, ay, az, color, additive]);
+  useEffect(() => () => { geometry.dispose(); }, [geometry]);
+  useEffect(() => () => { disposeShader(material); }, [material]);
   useLayoutEffect(() => { material.uniforms.uScale!.value = view.height * viewport.dpr * .9; }, [material, view.height, viewport.dpr]);
   return <points geometry={geometry} material={material} position={center} frustumCulled={false} />;
 }
 
+const RAIN_AREA: [number, number, number] = [36, 26, 36];
+
 /** Rain streaks: line segments animated in the vertex shader. */
-export function Rain({ count = 1400, area = [36, 26, 36] as [number, number, number], opacity = .45 }) {
+export function Rain({ count = 1400, area = RAIN_AREA, opacity = .45 }: { count?: number; area?: [number, number, number]; opacity?: number }) {
+  const [ax, ay, az] = area;
   const geometry = useMemo(() => {
     const r = rng(77);
     const g = new BufferGeometry();
@@ -104,7 +114,7 @@ export function Rain({ count = 1400, area = [36, 26, 36] as [number, number, num
     return g;
   }, [count]);
   const material = useMemo(() => new ShaderMaterial({
-    uniforms: { uTime: time, uArea: { value: area }, uOpacity: { value: opacity } },
+    uniforms: { uTime: time, uArea: { value: [ax, ay, az] }, uOpacity: { value: opacity } },
     vertexShader: /* glsl */`attribute float aSeed, aEnd; uniform float uTime; uniform vec3 uArea; varying float vA;
       void main(){ vec3 p = position * uArea; float h = uArea.y;
         p.y = mod(p.y + h * .5 - uTime * (16. + aSeed * 8.), h) - h * .5;
@@ -113,7 +123,9 @@ export function Rain({ count = 1400, area = [36, 26, 36] as [number, number, num
         vA = aEnd; gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.); }`,
     fragmentShader: /* glsl */`uniform float uOpacity; varying float vA; void main(){ gl_FragColor = vec4(.78, .88, .95, uOpacity * (.3 + vA * .7)); }`,
     transparent: true, depthWrite: false,
-  }), [area, opacity]);
+  }), [ax, ay, az, opacity]);
+  useEffect(() => () => { geometry.dispose(); }, [geometry]);
+  useEffect(() => () => { disposeShader(material); }, [material]);
   return <lineSegments geometry={geometry} material={material} frustumCulled={false} />;
 }
 

@@ -27,7 +27,8 @@ const mountainGeo = (() => {
   return g;
 })();
 
-export function IceAge({ look }: { look: Look }) {
+/** Memoised so the static scenery is not reconciled again on every move. */
+export const IceAge = React.memo(function IceAge({ look }: { look: Look }) {
   const world = useMemo(() => {
     const r = rng(61);
     const mountains = Array.from({ length: 18 }, (_, i) => {
@@ -54,4 +55,4 @@ export function IceAge({ look }: { look: Look }) {
     <Particles count={220} area={[44, 26, 44]} center={[0, 2, 0]} color="#ffffff" size={.32} speed={1.3} sway={1.4} seed={15} additive={false} />
     <Particles count={30} area={[24, 10, 24]} center={[0, 2, 0]} color={look.particles} size={.6} speed={.2} sway={1} seed={16} />
   </group>;
-}
+});

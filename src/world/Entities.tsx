@@ -1,16 +1,16 @@
-import React, { useEffect, useMemo, useRef } from 'react';
-import { AdditiveBlending, CatmullRomCurve3, Color, Group, Mesh, MeshBasicMaterial, MeshStandardMaterial, Sprite, SpriteMaterial, TubeGeometry, Vector3 } from 'three';
+import React, { useMemo, useRef } from 'react';
+import { AdditiveBlending, Group, Mesh, MeshBasicMaterial, Sprite, SpriteMaterial } from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { useFrame } from './Canvas';
-import { gemGeometry, glassMaterial, glowTexture, heartGeometry, portalMaterial, shardGeometry, sparkTexture } from './fx';
+import { glassMaterial, glowTexture, portalMaterial, sparkTexture } from './fx';
 import { useAppear } from './Board';
 import { Look } from './look';
-import { Direction, Mirror, Orientation, Point } from '../game/types';
-import { audio } from '../services/audio';
+import { Mirror, Orientation } from '../game/types';
+import { proxies } from './pick';
+import { proxyMesh, usePickTarget } from './Picker';
 
 const frameGeo = new RoundedBoxGeometry(.9, 1.06, .16, 3, .06);
 const blockGeo = new RoundedBoxGeometry(.9, .95, .9, 3, .1);
-const iceGeo = new RoundedBoxGeometry(1, 1.4, 1, 2, .12);
 import type { BeamClock } from './Beam';
 
 function Glow({ color, scale = 1, opacity = 1, position = [0, 0, 0], spark = false }: { color: string; scale?: number; opacity?: number; position?: [number, number, number]; spark?: boolean }) {
@@ -49,27 +49,25 @@ function Burst({ trigger, color, count = 8, spread = .8, rise = .6, size = .35, 
 
 const dustColors = ['#f3dcc0', '#bfe8ff', '#ffd89a', '#ffffff', '#7ae8ff'];
 
-export const MirrorPiece = React.memo(function MirrorPiece({ mirror, orientation, thawed, hint, hitAt, clock, look, chapter, delay, onTap, onBlocked, sounds }: {
-  mirror: Mirror; orientation: Orientation; thawed: boolean; hint: boolean; hitAt?: number; clock: BeamClock; look: Look; chapter: number;
-  delay: number; onTap?: () => void; onBlocked?: () => void; sounds: boolean;
+/** A turnable (or fixed) mirror. `orientation` is its slant as it stands (on a cluster's stones: relative to them). */
+export const MirrorPiece = React.memo(function MirrorPiece({ mirror, orientation, hint, hitAt, clock, look, chapter, delay, onTap, onBlocked, onPreview }: {
+  mirror: Mirror; orientation: Orientation; hint: boolean; hitAt?: number; clock: BeamClock; look: Look; chapter: number;
+  delay: number; onTap?: () => void; onBlocked?: () => void; onPreview?: (on: boolean) => void;
 }) {
   const root = useRef<Group>(null);
   const panel = useRef<Group>(null);
+  const base = useRef<Mesh>(null), body = useRef<Mesh>(null);
   const ring = useRef<Group>(null);
-  const ice = useRef<Mesh>(null);
   const glow = useRef<Sprite>(null);
   const appear = useAppear(delay);
   const spring = useRef({ angle: orientation * Math.PI / 2 + Math.PI / 4, target: orientation * Math.PI / 2 + Math.PI / 4, vel: 0 });
   const last = useRef(orientation);
   const wobble = useRef(0);
-  const melt = useRef(mirror.frozen && !thawed ? 1 : 0);
-  const wasThawed = useRef(thawed);
   if (last.current !== orientation) { spring.current.target += Math.PI / 2; last.current = orientation; }
-  useEffect(() => {
-    if (mirror.frozen && thawed && !wasThawed.current && sounds) { audio.play('thaw'); audio.haptic('heavy'); }
-    wasThawed.current = thawed;
-  }, [thawed, mirror.frozen, sounds]);
-  const frozenNow = !!mirror.frozen && !thawed;
+  usePickTarget(onTap && {
+    id: mirror.id, ring: .7, hold: mirror.fixed ? undefined : onPreview,
+    tap: () => { if (mirror.fixed) { wobble.current = 1; onBlocked?.(); } else onTap(); },
+  }, root, [base, body]);
   useFrame(({ clock: c }, dt) => {
     const t = c.elapsedTime;
     const s = spring.current;
@@ -80,10 +78,11 @@ export const MirrorPiece = React.memo(function MirrorPiece({ mirror, orientation
     wobble.current = Math.max(0, wobble.current - dt * 2.5);
     const a = appear(t);
     if (root.current) { root.current.scale.setScalar(Math.max(.001, a)); root.current.rotation.z = Math.sin(t * 40) * wobble.current * .08; }
-    if (ring.current) { ring.current.rotation.y = -t * 1.2; ring.current.visible = !mirror.fixed && !frozenNow; }
-    melt.current += ((frozenNow ? 1 : 0) - melt.current) * Math.min(1, dt * 3);
-    if (ice.current) { ice.current.visible = melt.current > .02; ice.current.scale.set(1, melt.current, 1); }
-    const lit = hitAt !== undefined && clock.reveal.value >= hitAt;
+    if (ring.current) {
+      ring.current.rotation.y = -t * 1.2;
+      ring.current.visible = !mirror.fixed;
+    }
+    const lit = hitAt !== undefined && clock.reveal.value >= hitAt && clock.abyss.drain.value <= hitAt;
     if (glow.current) {
       const target = lit ? .9 + Math.sin(t * 12) * .1 : 0;
       glow.current.material.opacity += (target - glow.current.material.opacity) * Math.min(1, dt * 10);
@@ -104,10 +103,9 @@ export const MirrorPiece = React.memo(function MirrorPiece({ mirror, orientation
         <sprite ref={glow} scale={[1.6, 1.6, 1]} renderOrder={6}>
           <spriteMaterial map={glowTexture} color="#bff6ff" opacity={0} transparent depthWrite={false} blending={AdditiveBlending} toneMapped={false} />
         </sprite>
+        {onTap && <mesh ref={body} {...proxyMesh(proxies.mirror.panel)} />}
       </group>
-      {mirror.frozen && <mesh ref={ice} geometry={iceGeo} position={[0, .7, 0]} dispose={null}>
-        <meshStandardMaterial color="#cfefff" roughness={.05} metalness={.1} transparent opacity={.55} envMapIntensity={2.2} emissive="#3aa8d8" emissiveIntensity={.25} />
-      </mesh>}
+      {onTap && <mesh ref={base} {...proxyMesh(proxies.mirror.base)} />}
     </group>
     <group ref={ring} position={[0, .03, 0]}>
       <mesh rotation={[-Math.PI / 2, 0, 0]}><ringGeometry args={[.5, .58, 40, 1, 0, Math.PI * 1.55]} />
@@ -116,12 +114,7 @@ export const MirrorPiece = React.memo(function MirrorPiece({ mirror, orientation
         <meshBasicMaterial color={hint ? '#9dff7a' : '#7fe8ff'} toneMapped={false} side={2} /></mesh>
     </group>
     <Burst trigger={orientation} color={dustColors[chapter]!} count={9} spread={.9} rise={.35} size={.42} y={.12} />
-    {mirror.frozen && <Burst trigger={thawed ? 1 : 0} color="#e8fbff" count={12} spread={.7} rise={1.6} size={.55} y={.5} duration={1.2} />}
     {hint && <HintArrow />}
-    {onTap && <mesh position={[0, .75, 0]} visible={false}
-      onClick={e => { e.stopPropagation(); if (mirror.fixed || frozenNow) { wobble.current = 1; onBlocked?.(); } else onTap(); }}>
-      <boxGeometry args={[1, 1.7, 1]} /><meshBasicMaterial />
-    </mesh>}
   </group>;
 });
 
@@ -174,7 +167,7 @@ export const SplitterPiece = React.memo(function SplitterPiece({ hitAt, clock, d
     const t = c.elapsedTime;
     if (prism.current) { prism.current.rotation.y = t * .6; prism.current.position.y = .85 + Math.sin(t * 1.6) * .05; }
     if (root.current) root.current.scale.setScalar(Math.max(.001, appear(t)));
-    const lit = hitAt !== undefined && clock.reveal.value >= hitAt;
+    const lit = hitAt !== undefined && clock.reveal.value >= hitAt && clock.abyss.drain.value <= hitAt;
     if (glow.current) { const target = lit ? 1 : .25; glow.current.material.opacity += (target - glow.current.material.opacity) * Math.min(1, dt * 8); }
   });
   return <group ref={root}>
@@ -207,76 +200,3 @@ export const PortalPiece = React.memo(function PortalPiece({ delay, exit }: { de
   </group>;
 });
 
-const linkColors = ['#7aff6a', '#7aff6a', '#ffd34a', '#9ff0ff', '#5ae0ff'];
-export const LinkVine = React.memo(function LinkVine({ a, b, chapter, pulse }: { a: Point; b: Point; chapter: number; pulse: number }) {
-  const mat = useRef<MeshStandardMaterial>(null);
-  const start = useRef(-10);
-  const last = useRef(pulse);
-  const geometry = useMemo(() => {
-    const mid = new Vector3((a[0] + b[0]) / 2, 1.9 + Math.hypot(a[0] - b[0], a[1] - b[1]) * .18, (a[1] + b[1]) / 2);
-    const curve = new CatmullRomCurve3([new Vector3(a[0], 1.35, a[1]), mid, new Vector3(b[0], 1.35, b[1])]);
-    return new TubeGeometry(curve, 32, .05, 6, false);
-  }, [a, b]);
-  useFrame(({ clock }) => {
-    if (last.current !== pulse) { last.current = pulse; start.current = clock.elapsedTime; }
-    const age = clock.elapsedTime - start.current;
-    if (mat.current) mat.current.emissiveIntensity = .6 + Math.sin(clock.elapsedTime * 3) * .2 + Math.max(0, 2.5 - age * 5);
-  });
-  const color = linkColors[chapter]!;
-  return <mesh geometry={geometry}><meshStandardMaterial ref={mat} color={color} emissive={color} emissiveIntensity={.6} roughness={.6} toneMapped={false} /></mesh>;
-});
-const curseTint = ['#ff3a6a', '#ff4a3a', '#ff2a2a', '#c43aff', '#ff2ad0'];
-/** A cursed shadow gem: drinks any light that touches it, and the level cannot be won while it feeds. */
-export const CursedGem = React.memo(function CursedGem({ hitAt, clock, chapter, delay, sounds }: { hitAt?: number; clock: BeamClock; chapter: number; delay: number; sounds: boolean }) {
-  const root = useRef<Group>(null);
-  const gem = useRef<Group>(null);
-  const ring = useRef<Mesh>(null);
-  const flare = useRef<Sprite>(null);
-  const core = useRef<MeshStandardMaterial>(null);
-  const motes = useRef<Group>(null);
-  const appear = useAppear(delay);
-  const heat = useRef(0);
-  const wasLit = useRef(false);
-  const tint = curseTint[chapter]!;
-  useFrame(({ clock: c }, dt) => {
-    const t = c.elapsedTime;
-    const lit = hitAt !== undefined && clock.reveal.value >= hitAt;
-    if (lit && !wasLit.current && sounds) { audio.play('curse', .8); audio.haptic('error'); }
-    wasLit.current = lit;
-    heat.current += ((lit ? 1 : 0) - heat.current) * Math.min(1, dt * 6);
-    const h = heat.current;
-    if (root.current) root.current.scale.setScalar(Math.max(.001, appear(t)));
-    if (gem.current) {
-      gem.current.rotation.y = t * (.5 + h * 3);
-      gem.current.position.set(Math.sin(t * 47) * .03 * h, .78 + Math.sin(t * 1.3) * .06, Math.cos(t * 53) * .03 * h);
-    }
-    if (core.current) core.current.emissiveIntensity = .5 + Math.sin(t * 2.2) * .25 + h * (2.6 + Math.sin(t * 18) * .8);
-    if (flare.current) { const s = .6 + h * (1.8 + Math.sin(t * 14) * .3); flare.current.scale.set(s, s, 1); flare.current.material.opacity = .25 + h * .75; }
-    if (ring.current) {
-      const k = (t * 1.6) % 1;
-      ring.current.visible = h > .05;
-      ring.current.scale.set(1 + k * .8, 1 + k * .8, 1);
-      (ring.current.material as MeshBasicMaterial).opacity = (1 - k) * h;
-    }
-    if (motes.current) motes.current.rotation.y = -t * (.8 + h * 4);
-  });
-  return <group ref={root}>
-    <mesh position={[0, .07, 0]} castShadow receiveShadow><cylinderGeometry args={[.36, .44, .14, 7]} /><meshStandardMaterial color="#1a1420" roughness={.6} metalness={.4} /></mesh>
-    {[0, 1, 2, 3, 4, 5, 6].map(i => <mesh key={i} position={[Math.cos(i * .9) * .38, .2, Math.sin(i * .9) * .38]} rotation={[Math.sin(i) * .4, i, Math.cos(i) * .4]} scale={[.06, .18, .06]}>
-      <octahedronGeometry args={[1, 0]} /><meshStandardMaterial color="#120c18" roughness={.2} metalness={.6} flatShading /></mesh>)}
-    <group ref={gem} position={[0, .78, 0]}>
-      <mesh scale={[.3, .52, .3]} castShadow><octahedronGeometry args={[1, 0]} />
-        <meshStandardMaterial ref={core} color="#16081c" emissive={tint} emissiveIntensity={.6} roughness={.15} metalness={.5} flatShading /></mesh>
-      {[-1, 1].map(s => <mesh key={s} position={[s * .2, -.12, 0]} rotation={[0, 0, -s * .6]} scale={[.12, .3, .12]}><octahedronGeometry args={[1, 0]} />
-        <meshStandardMaterial color="#0e0812" emissive={tint} emissiveIntensity={.4} roughness={.2} metalness={.5} flatShading /></mesh>)}
-      <sprite ref={flare} renderOrder={6}><spriteMaterial map={sparkTexture} color={tint} opacity={.25} transparent depthWrite={false} blending={AdditiveBlending} toneMapped={false} /></sprite>
-    </group>
-    <group ref={motes} position={[0, .7, 0]}>
-      {[0, 1, 2, 3].map(i => <mesh key={i} position={[Math.cos(i * 1.57) * .5, Math.sin(i * 2.3) * .2, Math.sin(i * 1.57) * .5]}>
-        <sphereGeometry args={[.035, 6, 5]} /><meshBasicMaterial color={tint} toneMapped={false} /></mesh>)}
-    </group>
-    <mesh ref={ring} position={[0, .04, 0]} rotation={[-Math.PI / 2, 0, 0]} visible={false}>
-      <ringGeometry args={[.5, .62, 40]} /><meshBasicMaterial color={tint} transparent opacity={0} depthWrite={false} toneMapped={false} />
-    </mesh>
-  </group>;
-});

@@ -16,6 +16,14 @@
       "edgeToEdgeEnabled": true,
       "adaptiveIcon": { "foregroundImage": "./assets/images/adaptive-foreground.png", "backgroundColor": "#140a33" }
     },
-    "web": { "bundler": "metro", "name": "Mirror Maze - The Last Lightkeeper", "themeColor": "#05030f", "favicon": "./assets/images/icon.png" }
+    "web": { "bundler": "metro", "name": "Mirror Maze - The Last Lightkeeper", "themeColor": "#05030f", "favicon": "./assets/images/icon.png" },
+    "plugins": [
+      ["react-native-google-mobile-ads", {
+        "androidAppId": "ca-app-pub-3940256099942544~3347511713",
+        "iosAppId": "ca-app-pub-3940256099942544~1458002511",
+        "delayAppMeasurementInit": true
+      }],
+      ["./modules/google-play/app.plugin.js", { "gamesAppId": "" }]
+    ]
   }
 }

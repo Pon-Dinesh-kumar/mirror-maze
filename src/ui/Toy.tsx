@@ -28,7 +28,7 @@ export const palette: Record<Base, { top: string; mid: string; bottom: string; r
   magenta: { top: '#ffb0ec', mid: '#d0309e', bottom: '#6a0a52', rim: '#4a063a', outline: '#24021c' },
   violet: { top: '#cdb4ff', mid: '#6a3ae0', bottom: '#2c1272', rim: '#1e0a52', outline: '#0e0428' },
 };
-const goldFrame = ['#fff4cc', '#e6b85a', '#8a5a1e', '#e6b85a'] as const;
+export const goldFrame = ['#fff4cc', '#e6b85a', '#8a5a1e', '#e6b85a'] as const;
 const nativeDriver = Platform.OS !== 'web';
 
 export const ChapterUI = createContext(0);

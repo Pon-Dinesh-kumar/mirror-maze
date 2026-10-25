@@ -1,0 +1,6 @@
+{
+  "platforms": ["android"],
+  "android": {
+    "modules": ["expo.modules.googleplay.PlayGamesModule", "expo.modules.googleplay.PlayBillingModule"]
+  }
+}

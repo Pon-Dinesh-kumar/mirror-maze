@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { completedDevelopmentSave, decodeSave, DEVELOPMENT_STORAGE_KEY, freshSave, SaveData, Settings, STORAGE_KEY } from './storage';
+import { CloudSave, completedDevelopmentSave, decodeSave, DEVELOPMENT_STORAGE_KEY, freshSave, mergeSaves, SaveData, Settings, STORAGE_KEY } from './storage';
 import { recordResult } from '../game/progress';
 
 export function useSave() {
@@ -53,6 +53,8 @@ export function useSave() {
   const setting = useCallback((key: keyof Settings, value: boolean) =>
     setData(previous => ({ ...previous, settings: { ...previous.settings, [key]: value } })), []);
   const reset = useCallback(() => { setData(freshSave()); setLoaded(true); }, []);
-  return { data, loaded, error, saving, load, complete, setting, reset, markSeen, resetAdCounter,
+  /** Takes in the journey from the Google Play Games cloud save (see mergeSaves). */
+  const adopt = useCallback((cloud: CloudSave) => setData(previous => mergeSaves(previous, cloud)), []);
+  return { data, loaded, error, saving, load, complete, setting, reset, markSeen, resetAdCounter, adopt,
     retrySave: () => setData(previous => ({ ...previous })) };
 }

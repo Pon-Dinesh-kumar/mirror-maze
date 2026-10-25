@@ -1,5 +1,5 @@
 import React, { useRef } from 'react';
-import { AdditiveBlending, Group, Mesh, Sprite } from 'three';
+import { AdditiveBlending, Group, Mesh, MeshBasicMaterial, Sprite } from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { useFrame } from './Canvas';
 import { glowTexture, sparkTexture } from './fx';
@@ -7,8 +7,10 @@ import { useAppear } from './Board';
 import { BEAM_Y } from './Beam';
 import { Look } from './look';
 import { Direction } from '../game/types';
+import { proxies } from './pick';
+import { proxyMesh, usePickTarget } from './Picker';
 
-const totemGeo = new RoundedBoxGeometry(.62, .9, .62, 3, .1);
+const idolGeo = new RoundedBoxGeometry(.62, .9, .62, 3, .1);
 const yaw: Record<Direction, number> = { N: Math.PI, E: Math.PI / 2, S: 0, W: -Math.PI / 2 };
 const gold = { color: '#e8b04a', metalness: 1, roughness: .28 } as const;
 
@@ -47,10 +49,10 @@ function SunLens({ look, kick, spin }: { look: Look; kick: React.MutableRefObjec
   </group>;
 }
 
-/** Chapter 2: a mossy spirit totem whose carved mouth breathes rain-light. */
-function SpiritTotem({ look, kick, spin }: { look: Look; kick: React.MutableRefObject<number>; spin: React.RefObject<Group | null> }) {
+/** Chapter 2: a mossy spirit idol whose carved mouth breathes rain-light (the Rainforest's light cannon, not a rootbound totem). */
+function SpiritIdol({ look, kick, spin }: { look: Look; kick: React.MutableRefObject<number>; spin: React.RefObject<Group | null> }) {
   return <group>
-    <mesh geometry={totemGeo} position={[0, .45, 0]} castShadow dispose={null}><meshStandardMaterial color="#5f6a58" roughness={.85} /></mesh>
+    <mesh geometry={idolGeo} position={[0, .45, 0]} castShadow dispose={null}><meshStandardMaterial color="#5f6a58" roughness={.85} /></mesh>
     <mesh position={[0, .93, 0]} scale={[.38, .1, .38]}><icosahedronGeometry args={[1, 1]} /><meshStandardMaterial color="#3f8a36" flatShading /></mesh>
     {[-.14, .14].map(x => <mesh key={x} position={[x, .78, .315]}><sphereGeometry args={[.06, 10, 8]} /><meshBasicMaterial color={look.beam} toneMapped={false} /></mesh>)}
     <mesh position={[0, .9, .3]} rotation={[0, 0, Math.PI / 4]}><boxGeometry args={[.16, .16, .04]} /><meshStandardMaterial color="#495244" /></mesh>
@@ -117,7 +119,7 @@ function StarEngine({ look, kick, spin }: { look: Look; kick: React.MutableRefOb
   </group>;
 }
 
-const sources = [SunLens, SpiritTotem, EyeOfRa, FrostLantern, StarEngine];
+const sources = [SunLens, SpiritIdol, EyeOfRa, FrostLantern, StarEngine];
 
 /** Ground turntable shown under cannons the player can turn: a geared ring with a clockwise arrow. */
 function Turntable({ look, hint }: { look: Look; hint: boolean }) {
@@ -137,9 +139,38 @@ function Turntable({ look, hint }: { look: Look; hint: boolean }) {
   </group>;
 }
 
-export const LightSource = React.memo(function LightSource({ direction, chapter, look, fire, delay, rotatable, hint, onTap }: {
-  direction: Direction; chapter: number; look: Look; fire: unknown; delay: number; rotatable?: boolean; hint?: boolean; onTap?: () => void;
+/**
+ * Floor chevrons in front of a cannon the player turns: bright ones marching along its aim, and a dim arrow a quarter
+ * turn clockwise showing where the next tap will point it.
+ */
+function AimArrows({ look }: { look: Look }) {
+  const march = useRef<Group>(null);
+  useFrame(({ clock }) => {
+    march.current?.children.forEach((c, i) => {
+      const k = (clock.elapsedTime * 1.2 + i / 3) % 1;
+      c.position.z = .72 + k * .55;
+      ((c as Mesh).material as MeshBasicMaterial).opacity = Math.sin(k * Math.PI) * .95;
+    });
+  });
+  const chevron = (opacity: number, key?: number) => <group key={key}>
+    {[-1, 1].map(s => <mesh key={s} position={[s * .07, 0, -.04]} rotation={[-Math.PI / 2, 0, -s * .75]}>
+      <planeGeometry args={[.06, .26]} /><meshBasicMaterial color={look.beamGlow} transparent opacity={opacity} depthWrite={false} toneMapped={false} side={2} />
+    </mesh>)}
+  </group>;
+  return <group position={[0, .04, 0]}>
+    <group ref={march}>{[0, 1, 2].map(i => <mesh key={i} rotation={[-Math.PI / 2, 0, 0]}>
+      <circleGeometry args={[.12, 3, -Math.PI / 2]} /><meshBasicMaterial color={look.beamGlow} transparent opacity={.9} depthWrite={false} toneMapped={false} side={2} />
+    </mesh>)}</group>
+    <group rotation={[0, -Math.PI / 2, 0]}><group position={[0, 0, .82]}>{chevron(.32)}</group></group>
+  </group>;
+}
+
+export const LightSource = React.memo(function LightSource({ id, direction, chapter, look, fire, delay, rotatable, hint, onTap, onPreview }: {
+  id: string; direction: Direction; chapter: number; look: Look; fire: unknown; delay: number; rotatable?: boolean; hint?: boolean; onTap?: () => void;
+  onPreview?: (on: boolean) => void;
 }) {
+  const stand = useRef<Group>(null);
+  const foot = useRef<Mesh>(null), body = useRef<Mesh>(null);
   const root = useRef<Group>(null);
   const aim = useRef<Group>(null);
   const spin = useRef<Group>(null);
@@ -172,13 +203,15 @@ export const LightSource = React.memo(function LightSource({ direction, chapter,
       else spin.current.rotation.z = clock.elapsedTime * (.4 + kick.current * 3);
     }
   });
+  usePickTarget(onTap && { id, ring: .78, tap: onTap, hold: rotatable ? onPreview : undefined }, stand, [foot, body]);
   const Source = sources[chapter] ?? SunLens;
-  return <group>
+  return <group ref={stand}>
     {rotatable && <Turntable look={look} hint={!!hint} />}
-    <group ref={aim}><group ref={root} scale={1.2}><Source look={look} kick={kick} spin={spin} /></group></group>
-    {onTap && <mesh position={[0, .6, 0]} visible={false} onClick={e => { e.stopPropagation(); onTap(); }}>
-      <boxGeometry args={[1, 1.4, 1]} /><meshBasicMaterial />
-    </mesh>}
+    <group ref={aim}>
+      <group ref={root} scale={1.2}><Source look={look} kick={kick} spin={spin} /></group>
+      {rotatable && <AimArrows look={look} />}
+    </group>
+    {onTap && <><mesh ref={foot} {...proxyMesh(proxies.cannon.foot)} /><mesh ref={body} {...proxyMesh(proxies.cannon.body)} /></>}
   </group>;
 });
 export const _mesh = (m: Mesh) => m;

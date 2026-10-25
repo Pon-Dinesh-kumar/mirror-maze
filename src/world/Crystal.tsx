@@ -33,7 +33,7 @@ export const CrystalPiece = React.memo(function CrystalPiece({ at, clock, win, i
   const moteSeeds = useMemo(() => Array.from({ length: 10 }, (_, i) => ({ a: i * .628, h: (i % 5) * .25, r: .9 + (i % 3) * .25 })), []);
   useFrame(({ clock: c }, dt) => {
     const t = c.elapsedTime;
-    const on = at !== undefined && clock.reveal.value >= at;
+    const on = at !== undefined && clock.reveal.value >= at && clock.abyss.drain.value <= at;
     if (on && !wasLit.current && sounds && win.start < 0) { audio.play('crystal', .55); audio.haptic(); }
     wasLit.current = on;
     lit.current += ((on ? 1 : 0) - lit.current) * Math.min(1, dt * 6);

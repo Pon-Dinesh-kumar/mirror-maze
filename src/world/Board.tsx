@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useLayoutEffect, useMemo, useRef } from 'react';
+import React, { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { AdditiveBlending, BoxGeometry, CircleGeometry, Color, DoubleSide, Float32BufferAttribute, Group, OctahedronGeometry, Vector3, ConeGeometry, CylinderGeometry, DodecahedronGeometry, IcosahedronGeometry, InstancedMesh, MeshStandardMaterial, Object3D, SphereGeometry } from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { useFrame } from './Canvas';
@@ -28,38 +28,49 @@ const disc = new CircleGeometry(1, 20);
 const box = new BoxGeometry(1, 1, 1);
 const octa = new OctahedronGeometry(1);
 
+const tileTransform = new Object3D();
+
 function Tiles({ size, look, chapter }: { size: number; look: Look; chapter: number }) {
   const top = useRef<InstancedMesh>(null);
   const foot = useRef<InstancedMesh>(null);
   const { born } = useContext(BoardClock);
   const done = useRef(false);
+  const colored = useRef(false);
   const data = useMemo(() => {
-    const out: { x: number; z: number; h: number; c: string; f: string; d: number; stretch: number }[] = [];
+    // Colours are parsed once here; the reveal animation below only moves the tiles.
+    const out: { x: number; z: number; h: number; c: Color; f: Color; d: number; stretch: number }[] = [];
     const c0 = (size - 1) / 2;
     for (let z = 0; z < size; z++) for (let x = 0; x < size; x++) {
       const edge = x === 0 || z === 0 || x === size - 1 || z === size - 1;
-      out.push({ x, z, h: ((x * 7 + z * 13) % 5) * .01, c: look.tiles[(x * 5 + z * 3 + x * z) % look.tiles.length]!,
-        f: look.foot[(x + z) % look.foot.length]!, d: Math.hypot(x - c0, z - c0) * .06, stretch: edge ? 1 + ((x + z * 2) % 3) * .3 : 1 });
+      out.push({ x, z, h: ((x * 7 + z * 13) % 5) * .01, c: new Color(look.tiles[(x * 5 + z * 3 + x * z) % look.tiles.length]!),
+        f: new Color(look.foot[(x + z) % look.foot.length]!), d: Math.hypot(x - c0, z - c0) * .06, stretch: edge ? 1 + ((x + z * 2) % 3) * .3 : 1 });
     }
     return out;
   }, [size, look]);
-  useLayoutEffect(() => { done.current = false; }, [data]);
+  useLayoutEffect(() => { done.current = false; colored.current = false; }, [data]);
   useFrame(({ clock }) => {
-    if (done.current || !top.current || !foot.current) return;
-    const o = new Object3D(), col = new Color();
+    const tm = top.current, fm = foot.current;
+    if (done.current || !tm || !fm) return;
+    const o = tileTransform;
     const age = born.value < 0 ? 0 : clock.elapsedTime - born.value;
-    data.forEach((t, i) => {
+    const paint = !colored.current;
+    for (let i = 0; i < data.length; i++) {
+      const t = data[i]!;
       const k = Math.min(1, Math.max(0, (age - t.d) / .5));
       const ease = 1 - Math.pow(1 - k, 3);
       const drop = (1 - ease) * -7;
       o.position.set(t.x, -.3 + t.h + drop, t.z); o.scale.set(1, 1, 1); o.rotation.set(0, (1 - ease) * .6, 0); o.updateMatrix();
-      top.current!.setMatrixAt(i, o.matrix);
-      top.current!.setColorAt(i, col.set(t.c));
+      tm.setMatrixAt(i, o.matrix);
       o.position.set(t.x, -.6 - .35 * t.stretch + drop, t.z); o.scale.set(1, t.stretch, 1); o.updateMatrix();
-      foot.current!.setMatrixAt(i, o.matrix);
-      foot.current!.setColorAt(i, col.set(t.f));
-    });
-    [top.current, foot.current].forEach(m => { m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; });
+      fm.setMatrixAt(i, o.matrix);
+      if (paint) { tm.setColorAt(i, t.c); fm.setColorAt(i, t.f); }
+    }
+    tm.instanceMatrix.needsUpdate = true; fm.instanceMatrix.needsUpdate = true;
+    if (paint) {
+      if (tm.instanceColor) tm.instanceColor.needsUpdate = true;
+      if (fm.instanceColor) fm.instanceColor.needsUpdate = true;
+      colored.current = true;
+    }
     if (age > 1.6) done.current = true;
   });
   const metal = chapter === 4;
@@ -71,6 +82,48 @@ function Tiles({ size, look, chapter }: { size: number; look: Look; chapter: num
       <meshStandardMaterial vertexColors roughness={.95} metalness={metal ? .5 : 0} />
     </instancedMesh>
     {metal && <Seams size={size} />}
+    {metal && <VoidAccents size={size} />}
+  </group>;
+}
+
+/**
+ * The Void board's age: faint violet energy cracks across a few tiles, and a restrained violet-cyan rim light along a
+ * few stretches of its edge, as if the abyss were seeping through. Seeded per board size, merged into one mesh each,
+ * and kept dim so mirrors, wormholes and crystals stay the brightest things on the board.
+ */
+function VoidAccents({ size }: { size: number }) {
+  const { cracks, rims } = useMemo(() => {
+    const r = rng(size * 17 + 5);
+    const cracks: { p: [number, number, number]; r: [number, number, number]; s: [number, number, number] }[] = [];
+    const tiles = Math.max(2, Math.round(size * .6));
+    for (let k = 0; k < tiles; k++) {
+      const x = Math.floor(r() * size), z = Math.floor(r() * size);
+      // On top of the tile, which is raised by the same small step the tiles use.
+      const y = ((x * 7 + z * 13) % 5) * .01 + .004;
+      let cx = x - .3 + r() * .2, cz = z - .3 + r() * .6, a = r() * Math.PI;
+      for (let seg = 0; seg < 3; seg++) {
+        const len = .18 + r() * .16;
+        a += (r() - .5) * 1.4;
+        cracks.push({ p: [cx + Math.cos(a) * len / 2, y, cz + Math.sin(a) * len / 2], r: [0, -a, 0], s: [len, .006, .018] });
+        cx += Math.cos(a) * len; cz += Math.sin(a) * len;
+      }
+    }
+    const rims: { p: [number, number, number]; s: [number, number, number] }[] = [];
+    for (let k = 0; k < 3; k++) {
+      const side = Math.floor(r() * 4), from = Math.floor(r() * (size - 2)), span = 2 + Math.floor(r() * 2);
+      const mid = from + span / 2 - .5, edge = side < 2 ? -.5 : size - .5;
+      rims.push(side % 2 === 0 ? { p: [mid, -.04, edge], s: [span, .025, .03] } : { p: [edge, -.04, mid], s: [.03, .025, span] });
+    }
+    return { cracks, rims };
+  }, [size]);
+  const mats = useMemo(() => ({
+    crack: new MeshStandardMaterial({ color: '#b98aff', emissive: '#8a4aff', emissiveIntensity: 1.1, transparent: true, opacity: .55, toneMapped: false }),
+    rim: new MeshStandardMaterial({ color: '#9ad8ff', emissive: '#7a6aff', emissiveIntensity: 1.4, transparent: true, opacity: .6, toneMapped: false }),
+  }), []);
+  useEffect(() => () => { mats.crack.dispose(); mats.rim.dispose(); }, [mats]);
+  return <group>
+    <Instances geometry={box} material={mats.crack} items={cracks} />
+    <Instances geometry={box} material={mats.rim} items={rims} />
   </group>;
 }
 

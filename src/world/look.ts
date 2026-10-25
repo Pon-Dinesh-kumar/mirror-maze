@@ -37,7 +37,7 @@ export const looks: Look[] = [
     light: { sky: '#9cc4b6', ground: '#1f3128', hemi: .85, sun: '#d8ecff', sunIntensity: 1.35, fill: '#6fe0a8', fillIntensity: .4, exposure: 1.15 },
     tiles: ['#6f7b68', '#5f6c5a', '#7d8873', '#56634f', '#687a63', '#788470'], tileRoughness: .38,
     foot: ['#4c5646', '#434c3e', '#56614e'],
-    crystal: '#3dff8a', crystalGlow: '#22e070', beam: '#22e6ff', beamGlow: '#e8ffff', beamStyle: 1, source: 'Spirit Totem', frame: '#c9a24a', particles: '#c8ff7a',
+    crystal: '#3dff8a', crystalGlow: '#22e070', beam: '#22e6ff', beamGlow: '#e8ffff', beamStyle: 1, source: 'Spirit Idol', frame: '#c9a24a', particles: '#c8ff7a',
     ui: { primary: 'lime', secondary: 'teal', accent: '#b9ff6a', title: ['#f0ffe0', '#8fff6a', '#1fae4a'], titleStroke: '#0a3318', panel: ['#16543ce6', '#0a2a1ef0'], panelBorder: '#8fff6a', tint: '#0a3318' },
   },
   { // Desert of Pyramids: blazing sunset over endless dunes

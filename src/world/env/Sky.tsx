@@ -84,7 +84,8 @@ const islands: { p: [number, number, number]; size: number; temple?: 'columns' |
   { p: [-20, -12, -30], size: 2.5 },
 ];
 
-export function SkyTemples({ look }: { look: Look }) {
+/** Memoised so the static scenery is not reconciled again on every move. */
+export const SkyTemples = React.memo(function SkyTemples({ look }: { look: Look }) {
   return <group>
     {islands.map((it, i) => <group key={i} position={it.p}><FloatingIsland seed={i + 1} size={it.size} temple={it.temple} waterfall={it.waterfall} /></group>)}
     <Clouds count={34} radius={[14, 150]} y={-44} spread={8} scale={[46, 16]} color="#f6e6f2" opacity={.95} seed={1} drift={.003} />
@@ -93,4 +94,4 @@ export function SkyTemples({ look }: { look: Look }) {
     <Birds count={9} radius={24} y={7} color="#5a5868" />
     <Particles count={70} area={[30, 16, 30]} center={[0, 3, 0]} color={look.particles} size={1.4} speed={.35} sway={1.2} seed={4} />
   </group>;
-}
+});

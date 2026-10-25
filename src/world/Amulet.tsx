@@ -99,8 +99,10 @@ export function Amulet({ hearts, forging, complete = false }: { hearts: number[]
     if (prism.current) { prism.current.rotation.y = t * .5; prism.current.scale.setScalar(.42 + count * .035 + whole * .35); }
     prismMat.opacity = .35 + count * .08 + whole * .3;
     prismMat.emissive.setHSL((t * .07) % 1, .7, .55);
-    prismMat.emissiveIntensity = .1 + count * .12 + whole * 1.6;
-    if (prismHalo.current) { const s = 1.5 + count * .5 + whole * 6; prismHalo.current.scale.set(s, s, 1); prismHalo.current.material.opacity = .2 + count * .12 + whole * .4; }
+    // The reunited Prism glows and its halo swells, but stays below white-out, so its facets and the Hearts around it
+    // still read through the light.
+    prismMat.emissiveIntensity = .1 + count * .12 + whole * 1.1;
+    if (prismHalo.current) { const s = 1.5 + count * .5 + whole * 4.5; prismHalo.current.scale.set(s, s, 1); prismHalo.current.material.opacity = .2 + count * .12 + whole * .1; }
     if (fly.current && forging !== undefined) {
       const k = Math.min(1, Math.max(0, (age - 2.4) / 1.3));
       const e = k * k * (3 - 2 * k);

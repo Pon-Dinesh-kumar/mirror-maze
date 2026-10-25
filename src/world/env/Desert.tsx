@@ -61,7 +61,8 @@ function Palm({ p, h, lean }: { p: [number, number, number]; h: number; lean: nu
   return <group position={p}><Instances geometry={cylGeo} material={mats.palm} items={parts.segs} /><Instances geometry={coneGeo} material={mats.frond} items={parts.fronds} /></group>;
 }
 
-export function Desert({ look }: { look: Look }) {
+/** Memoised so the static scenery is not reconciled again on every move. */
+export const Desert = React.memo(function Desert({ look }: { look: Look }) {
   const props = useMemo(() => {
     const r = rng(23);
     const obelisks = [[-9, -14], [10, -16], [-13, 4], [14, 2]].map(([x, z]) => ({ x: x!, z: z!, h: 9 + r() * 4 }));
@@ -90,7 +91,7 @@ export function Desert({ look }: { look: Look }) {
     <Courtyard />
     <Particles count={160} area={[50, 12, 50]} center={[0, -2, 0]} color="#ffe0a8" size={.9} speed={-.4} sway={6} seed={12} additive={false} />
   </group>;
-}
+});
 
 function Brazier({ p }: { p: [number, number, number] }) {
   return <group position={p}>

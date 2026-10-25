@@ -67,7 +67,7 @@ export function Complete({ level, moves, stars, best, before, after, onNext, onR
   const safe = useSafeAreaInsets();
   const { ui, look } = useUI();
   const c = chapters[level.chapter]!;
-  const boss = level.index === 27;
+  const boss = level.boss;
   const perfect = stars === 3;
   const headline = boss ? 'WORLD CLEARED' : perfect ? 'FLAWLESS' : 'LIGHT RESTORED';
   return <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
@@ -107,13 +107,26 @@ const failText = [
   { title: 'THE VOID GROWS', line: 'The Eye drinks the last of the light.' },
 ];
 
-export function Fail({ level, onRetry, onMap }: { level: Level; onRetry: () => void; onMap: () => void }) {
+/** Lost to the Light Devourer: the light entered its zone. */
+const devouredText = { title: 'SWALLOWED BY THE DARK', line: 'The Devourer drank your light.' };
+
+export function Fail({ level, reason = 'moves', onRetry, onMap, onRewind }: {
+  level: Level; reason?: 'moves' | 'devoured'; onRetry: () => void; onMap: () => void; onRewind?: () => void;
+}) {
   const { width, height } = useWindowDimensions();
   const safe = useSafeAreaInsets();
   const { ui } = useUI();
-  const f = failText[level.chapter]!;
-  useEffect(() => { audio.play('fail'); audio.haptic('error'); }, []);
-  return <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+  const devoured = reason === 'devoured';
+  const f = devoured ? devouredText : failText[level.chapter]!;
+  // After the Devourer's absorption the scene has already said everything: the screen fades in quietly over the darkness.
+  const fade = useRef(new Animated.Value(devoured ? 0 : 1)).current;
+  useEffect(() => {
+    if (!devoured) { audio.play('fail'); audio.haptic('error'); return; }
+    const a = Animated.timing(fade, { toValue: 1, duration: 700, easing: Easing.out(Easing.quad), useNativeDriver: nativeDriver });
+    a.start();
+    return () => a.stop();
+  }, [devoured, fade]);
+  return <Animated.View style={[StyleSheet.absoluteFill, { opacity: fade }]} pointerEvents="box-none">
     <LinearGradient pointerEvents="none" colors={['#000000d8', '#00000070', '#000000d8']} style={StyleSheet.absoluteFill} />
     <View style={[s.failBox, { paddingTop: safe.top + height * .16 }]} pointerEvents="box-none">
       <PopIn from={.5}><TitleArt lines={[f.title]} width={Math.min(width * .92, 420)} size={fitTitle(f.title, Math.min(width * .92, 420), 42)} fill={['#ffffff', '#ffc0b0', '#e04a3c']} stroke="#1a0404" font={fonts.cinemaBold} /></PopIn>
@@ -121,17 +134,26 @@ export function Fail({ level, onRetry, onMap }: { level: Level; onRetry: () => v
       <View style={[s.shards, { marginTop: 14, opacity: .8 }]} accessibilityLabel="No shards earned">
         {[1, 2, 3].map(i => <Gem key={i} size={i === 2 ? 40 : 32} color="gray" />)}
       </View>
-      <View style={[s.failCard, { borderColor: `${ui.accent}55` }]}>
-        <GameText size={14} font="semi" strokeWidth={0} style={{ color: '#e8ecf6' }}>{`Out of moves. The crystals can be lit in just ${level.par}${level.par === 1 ? ' move' : ' moves'}.`}</GameText>
-        <GameText size={13} font="semi" strokeWidth={0} style={{ color: ui.accent, marginTop: 6 }}>Look before you tap, or use the bulb for a hint.</GameText>
+      <View style={[s.failCard, { borderColor: devoured ? '#ff6a8a88' : `${ui.accent}55` }]}>
+        <GameText size={14} font="semi" strokeWidth={0} style={{ color: '#e8ecf6' }}>{devoured
+          ? 'Light that enters the red-edged zone is lost for good.'
+          : `Out of moves. The crystals can be lit in just ${level.par}${level.par === 1 ? ' move' : ' moves'}.`}</GameText>
+        <GameText size={13} font="semi" strokeWidth={0} style={{ color: ui.accent, marginTop: 6 }}>{devoured
+          ? 'Hold a mirror or cannon to see where its light will go before you tap.'
+          : 'Look before you tap, or use the bulb for a hint.'}</GameText>
       </View>
     </View>
     <View style={{ flex: 1 }} pointerEvents="none" />
     <View style={[s.bottom, { paddingBottom: safe.bottom + 22 }]} pointerEvents="box-none">
-      <ToyButton title="TRY AGAIN" icon="refresh" height={60} fontSize={22} style={{ width: Math.min(width * .78, 330) }} onPress={onRetry} label="Try again" />
-      <View style={s.row}><RoundButton icon="map" label="Journey map" caption="Map" onPress={onMap} sfx="whoosh" /></View>
+      {onRewind
+        ? <ToyButton title="REWIND MOVE" icon="arrow-undo" height={60} fontSize={22} style={{ width: Math.min(width * .78, 330) }} onPress={onRewind} label="Rewind the last move" />
+        : <ToyButton title="TRY AGAIN" icon="refresh" height={60} fontSize={22} style={{ width: Math.min(width * .78, 330) }} onPress={onRetry} label="Try again" />}
+      <View style={s.row}>
+        {onRewind && <RoundButton icon="refresh" label="Try again" caption="Retry" onPress={onRetry} />}
+        <RoundButton icon="map" label="Journey map" caption="Map" onPress={onMap} sfx="whoosh" />
+      </View>
     </View>
-  </View>;
+  </Animated.View>;
 }
 
 const s = StyleSheet.create({
