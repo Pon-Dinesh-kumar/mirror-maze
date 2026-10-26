@@ -1,5 +1,5 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
-import { Animated, Easing, Platform, Pressable, StyleSheet, View } from 'react-native';
+import { AccessibilityInfo, Animated, Easing, Platform, Pressable, StyleSheet, View } from 'react-native';
 import Svg, { Defs, G, Line, Mask, Rect, Text as SvgText } from 'react-native-svg';
 import { LinearGradient } from 'expo-linear-gradient';
 import type { PurchaseStatus } from '../../modules/google-play';
@@ -78,28 +78,64 @@ const titleWidth = (size: number) => TITLE.length * (.66 * size + .8) + 4;
 const priceWidth = (price: string, size: number) => price.length * .52 * size;
 const label = (price?: string) => (price ? `Remove ads forever, ${price}, one-time purchase` : 'Remove ads forever, one-time purchase');
 
-/** Home: the crossed-out ads icon in a gold-rimmed orb, Google Play's one-time price beside it. A tap opens Google Play. */
+/** True while the player has asked the system for less motion (Android: "Remove animations"). */
+function useReducedMotion() {
+  const [reduced, setReduced] = useState(false);
+  useEffect(() => {
+    let live = true;
+    AccessibilityInfo.isReduceMotionEnabled().then(r => { if (live) setReduced(r); }, () => undefined);
+    const sub = AccessibilityInfo.addEventListener('reduceMotionChanged', setReduced);
+    return () => { live = false; sub.remove(); };
+  }, []);
+  return reduced;
+}
+
+/** How long the orb's shimmer takes to cross it, and how long it rests before the next one. */
+const SHIMMER_MS = 1800;
+const SHIMMER_REST_MS = 4400;
+
+/**
+ * A soft golden light that drifts slowly across the orb and its rim every few seconds. It runs on the native driver
+ * (no JS work per frame), sits over the orb without taking any room, and stays away for anyone who asked for less motion.
+ */
+function Shimmer({ size }: { size: number }) {
+  const still = useReducedMotion();
+  const v = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (still) return;
+    const run = Animated.loop(Animated.sequence([
+      Animated.delay(SHIMMER_REST_MS),
+      Animated.timing(v, { toValue: 1, duration: SHIMMER_MS, easing: Easing.inOut(Easing.sin), useNativeDriver: nativeDriver }),
+    ]));
+    run.start();
+    return () => { run.stop(); v.setValue(0); };
+  }, [v, still]);
+  if (still) return null;
+  const band = size * .5;
+  return <Animated.View pointerEvents="none" style={{ position: 'absolute', top: -size * .25, bottom: -size * .25, left: 0, width: band,
+    transform: [{ translateX: v.interpolate({ inputRange: [0, 1], outputRange: [-band * 1.5, size + band * .5] }) }, { rotate: '22deg' }] }}>
+    <LinearGradient colors={['#fff2c000', '#fff2c03d', '#fffbe866', '#fff2c03d', '#fff2c000']} locations={[0, .3, .5, .7, 1]}
+      start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={StyleSheet.absoluteFill} />
+  </Animated.View>;
+}
+
+/**
+ * Home: the crossed-out ads icon alone in a gold-rimmed orb (Google Play's price is in its spoken label). A tap opens
+ * Google Play's purchase sheet straight away.
+ */
 export function AdFreeOrb({ price, busy, onPress, size = 46 }: { price?: string; busy: boolean; onPress: () => void; size?: number }) {
   return <Pressable accessibilityRole="button" accessibilityLabel={label(price)} accessibilityState={{ disabled: busy }} disabled={busy} hitSlop={8}
-    onPress={press(onPress)} style={({ pressed }) => [s.orbRow, { opacity: busy ? .7 : 1, transform: [{ scale: pressed ? .95 : 1 }] }]}>
+    onPress={press(onPress)} style={({ pressed }) => ({ opacity: busy ? .7 : 1, transform: [{ scale: pressed ? .95 : 1 }] })}>
     <View style={[s.shadow, { borderRadius: size / 2 }]}>
       <LinearGradient colors={goldFrame} locations={[0, .3, .7, 1]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-        style={{ width: size, height: size, borderRadius: size / 2, padding: 1.5 }}>
+        style={{ width: size, height: size, borderRadius: size / 2, padding: 1.5, overflow: 'hidden' }}>
         <LinearGradient colors={navy} style={[s.center, { flex: 1, borderRadius: size / 2, overflow: 'hidden' }]}>
           <LinearGradient colors={['#ffffff38', '#ffffff00']} pointerEvents="none"
             style={{ position: 'absolute', top: 1, left: size * .14, right: size * .14, height: size * .42, borderRadius: size }} />
           <NoAdsIcon size={size * .6} />
         </LinearGradient>
+        <Shimmer size={size} />
       </LinearGradient>
-    </View>
-    <View pointerEvents="none">
-      {price ? <>
-        <GameText size={15} font="bold" strokeWidth={0} numberOfLines={1} align="left" color="#ffffff" style={s.lift}>{price}</GameText>
-        <GameText size={8.5} font="cinemaBold" strokeWidth={0} numberOfLines={1} align="left" color={AD_FREE_GOLD} style={[s.lift, { letterSpacing: 1.2 }]}>ONE-TIME</GameText>
-      </> : <>
-        <GameText size={8.5} font="cinemaBold" strokeWidth={0} numberOfLines={1} align="left" color={AD_FREE_GOLD} style={[s.lift, { letterSpacing: 1.2 }]}>ONE-TIME</GameText>
-        <GameText size={8.5} font="cinemaBold" strokeWidth={0} numberOfLines={1} align="left" color={AD_FREE_GOLD} style={[s.lift, { letterSpacing: 1.2 }]}>PURCHASE</GameText>
-      </>}
     </View>
   </Pressable>;
 }
@@ -158,7 +194,6 @@ const s = StyleSheet.create({
   center: { alignItems: 'center', justifyContent: 'center' },
   shadow: { shadowColor: '#000', shadowOpacity: .45, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 7 },
   lift: { textShadowColor: '#000000aa', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 },
-  orbRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
   badge: { flexDirection: 'row', alignItems: 'center', gap: 5, height: 30, paddingHorizontal: 11, borderRadius: 15, borderWidth: 1,
     borderColor: '#ffd36a66', backgroundColor: '#05081ab0' },
   button: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 60, paddingVertical: 8, paddingLeft: 12, paddingRight: 9, borderRadius: 16, overflow: 'hidden' },

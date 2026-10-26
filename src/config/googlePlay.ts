@@ -28,3 +28,9 @@ export const ACHIEVEMENT_IDS: Record<AchievementKey, string> = {
 
 /** The "Crystal Shards" leaderboard id ("CgkI…"): total shards, higher is better. */
 export const SHARDS_LEADERBOARD = '';
+
+/**
+ * The privacy policy ("https://…"): the same address as in Play Console > App content > Privacy policy. Google Play
+ * requires a link inside the app too; Settings shows one under the version line once this is filled in.
+ */
+export const PRIVACY_POLICY_URL: string = '';

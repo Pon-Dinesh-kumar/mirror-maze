@@ -15,4 +15,6 @@ export interface GameTextProps {
   containerStyle?: ViewStyle;
   numberOfLines?: number;
   align?: 'center' | 'left' | 'right';
+  /** One line, shrunk only where its room is too narrow for it (a 320 dp phone); it never grows. Native only. */
+  fit?: boolean;
 }

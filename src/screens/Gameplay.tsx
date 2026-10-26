@@ -253,7 +253,10 @@ const s = StyleSheet.create({
   rule: { width: 60, height: 2, marginVertical: 10, borderRadius: 1 },
   cardBeat: { color: '#e8ecf6', ...shadow },
   tipSlot: { flex: 1, paddingHorizontal: 10, justifyContent: 'flex-end' },
-  tipBox: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 7, paddingHorizontal: 10, borderRadius: 14, borderWidth: 1, backgroundColor: '#05081ad8' },
+  // Anchored to the bar's floor and sized by its words: on a narrow phone a long tip grows upward instead of being cut
+  // off after three lines (it is gone after the first move anyway).
+  tipBox: { position: 'absolute', left: 10, right: 10, bottom: 0, flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 7, paddingHorizontal: 10,
+    borderRadius: 14, borderWidth: 1, backgroundColor: '#05081ad8' },
   cheer: { position: 'absolute', top: '24%', left: 0, right: 0, alignItems: 'center' },
   cheerText: { color: '#fff', letterSpacing: 3, ...shadow, textShadowRadius: 14 },
   bottom: { position: 'absolute', bottom: 0, left: 0, right: 0, flexDirection: 'row', alignItems: 'flex-end', paddingHorizontal: 16, maxWidth: 620, alignSelf: 'center' },

@@ -25,10 +25,17 @@ let total = 0;
  * it, but never written.
  */
 const RETIRED = new Set(['curse', 'burn', 'thaw', 'grow', 'devour']);
+/**
+ * Sounds rebuilt by the soft kit at the end of this file. Their first versions are still rendered where they were (for
+ * the same reason as the retired ones) but only the soft kit's versions are written.
+ */
+const SUPERSEDED = new Set(['amb0', 'amb1', 'amb2', 'amb3', 'amb4', 'rotate0', 'rotate1', 'rotate2', 'rotate3', 'turn', 'zap', 'split', 'charge',
+  'type', 'glide', 'grind', 'crystal', 'star1', 'star2', 'star3', 'win']);
+let softKit = false;
 /** `MM_ONLY=glide,seal` writes just those files and leaves every other asset untouched. */
 const ONLY = process.env.MM_ONLY ? new Set(process.env.MM_ONLY.split(',')) : undefined;
 function write(name, data, { peak = .9, kbps = 64, loop = false } = {}) {
-  if (RETIRED.has(name) || (ONLY && !ONLY.has(name))) return;
+  if (RETIRED.has(name) || (SUPERSEDED.has(name) && !softKit) || (ONLY && !ONLY.has(name))) return;
   if (loop) {
     // Fold the tail into the head so the loop point is seamless.
     const fade = Math.floor(SR * .5);
@@ -82,6 +89,17 @@ function bandpass(data, freqFn, q = 4) {
     const f = typeof freqFn === 'function' ? freqFn(i / SR) : freqFn;
     const w = TAU * f / SR, alpha = Math.sin(w) / (2 * q), cos = Math.cos(w), a0 = 1 + alpha;
     const y = ((alpha) * x - alpha * x2 - (-2 * cos) * y1 - (1 - alpha) * y2) / a0;
+    x2 = x1; x1 = x; y2 = y1; y1 = y;
+    return y;
+  });
+}
+/** A 2nd-order (12 dB per octave) low-pass whose cutoff may move over time; cascaded, it leaves no hiss above the cutoff. */
+function lowpass2(data, freqFn, q = Math.SQRT1_2) {
+  let x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+  return data.map((x, i) => {
+    const f = typeof freqFn === 'function' ? freqFn(i / SR) : freqFn;
+    const w = TAU * f / SR, alpha = Math.sin(w) / (2 * q), cos = Math.cos(w), a0 = 1 + alpha, b = (1 - cos) / 2;
+    const y = (b * x + 2 * b * x1 + b * x2 + 2 * cos * y1 - (1 - alpha) * y2) / a0;
     x2 = x1; x1 = x; y2 = y1; y1 = y;
     return y;
   });
@@ -481,5 +499,179 @@ write('riser', highpass(render(2.2, t => (noise() * .3 + Math.sin(TAU * (200 + 8
   mix(d, bandpass(noiseBuf(n), t => 2600 * Math.exp(-t * 6) + 280, 2.5).map((v, i) => v * Math.sin(Math.PI * i / (n * SR)) * 2), 0, 1);
   mix(d, render(.25, t => (Math.sin(TAU * 70 * t) + Math.sin(TAU * 140 * t) * .4) * Math.exp(-t * 14)), .4, .8);
   write('swallow', reverb(d, .25), { peak: .7 });
+}
+// ---------- Soft kit: the sounds heard on every move, and the ambience under every level ----------
+// Their first versions leaned on raw noise: stone grinds whose grit was single-sample spikes (a crackle on every mirror
+// turn), a hissing ice scrape, a square-wave creak, a noise sweep for the light, and ambience beds of broadband noise
+// that a phone speaker, unable to play their low end, turned into a steady static as loud as the music. These keep
+// each sound's part and each world's character, built from tones and smoothly filtered air instead.
+softKit = true;
+/** Noise behind a steep low-pass (24 dB per octave), so only its soft lower part is left; `cutoff` may move over time. */
+const air = (len, cutoff) => lowpass2(lowpass2(noiseBuf(len), cutoff), cutoff);
+/** A smooth slide (a mirror on its pivot, stone over sand): air that opens and closes with the motion, without grit. */
+const slide = (len, lo, hi) => highpass(air(len, t => lo + (hi - lo) * Math.sin(Math.PI * Math.min(1, t / len))), lo * .5)
+  .map((v, i) => v * Math.sin(Math.PI * i / (len * SR)) ** 2);
+/** A soft knock of wood or stone: a pitched body and a brief overtone, eased in so it never clicks. */
+const knock = (f, len = .22, decay = 26) => render(len, t =>
+  (Math.sin(TAU * f * t) * env(t, .003, decay) + Math.sin(TAU * f * 2.71 * t) * env(t, .002, decay * 2.4) * .3) * .8);
+/** A tone gliding from one pitch to another with its phase kept continuous; `shape(k)` is its level over k = 0–1. */
+const glideTone = (len, from, to, shape) => {
+  let ph = 0;
+  return render(len, t => { const k = t / len; ph += TAU * (from + (to - from) * k) / SR; return Math.sin(ph) * shape(k); });
+};
+const swell = k => Math.sin(Math.PI * k) ** 2;
+/**
+ * The bell above, rendered at four times the rate and band-limited before coming back down. On high notes its upper
+ * partials passed the top of the range and folded back as harsh, off-key tones; here they simply fade out.
+ */
+function cleanBell(f, len = 1.6, decay = 2.6, index = 1.8) {
+  const up = 4, rate = SR * up;
+  let x = new Float32Array(Math.floor(len * SR) * up);
+  for (let i = 0; i < x.length; i++) {
+    const t = i / rate;
+    x[i] = Math.sin(TAU * f * t + index * Math.exp(-t * 4) * Math.sin(TAU * f * 3.5 * t)) * env(t, .002, decay) * .6 + Math.sin(TAU * f * 2 * t) * env(t, .002, decay * 2) * .15;
+  }
+  // lowpass2 works at the normal rate, so a quarter of the cutoff here is 9.5 kHz at the high one.
+  for (let k = 0; k < 4; k++) x = lowpass2(x, 9500 / up);
+  return Float32Array.from({ length: x.length / up }, (_, i) => x[i * up]);
+}
+const cleanSparkle = (len = 1, base = 2000, count = 10) => {
+  const d = buffer(len);
+  for (let i = 0; i < count; i++) mix(d, cleanBell(base * (1 + i * .13) * (i % 2 ? 1.5 : 1), .5, 9), i * len / count * .7, .35 * (1 - i / count / 1.5));
+  return d;
+};
+
+// Ambience: each bed sits under its world's music, and nothing in it hisses; the only high sounds are tones.
+const breeze = (len, base, gust) => highpass(air(len, t => base * (1 + .3 * Math.sin(t * .5) + .2 * Math.sin(t * 1.3 + 1))), 90)
+  .map((v, i) => { const t = i / SR; return v * (1 - gust + gust * (.5 + .5 * Math.sin(t * .45) * Math.sin(t * .23 + 2))); });
+const chirp = f => glideTone(.16, f, f * 1.25, k => swell(k) * (.75 + .25 * Math.sin(TAU * 3 * k)));
+{ // Sky: a soft breeze rising and falling, and distant birds
+  const d = breeze(22, 420, .6);
+  for (let i = 0; i < 7; i++) { const at = 1 + i * 2.9 + rand(); for (let k = 0; k < 3; k++) mix(d, chirp(2500 + rand() * 900), at + k * .17, .025); }
+  write('amb0', d, { loop: true, kbps: 48, peak: .6 });
+}
+{ // Rainforest: soft rain on the leaves, round drops, and a far roll of thunder
+  const swellAt = t => .8 + .2 * Math.sin(t * .8) * Math.sin(t * .31 + 1);
+  const d = highpass(air(22, 1000), 120);
+  const patter = lowpass2(lowpass2(bandpass(noiseBuf(22), 1600, .9), 2200), 2200);
+  for (let i = 0; i < d.length; i++) { const t = i / SR; d[i] = (d[i] + patter[i] * .2) * swellAt(t); }
+  for (let i = 0; i < 300; i++) {
+    const f = 1300 + rand() * 1400, at = rand() * 21.5, g = .006 + .014 * rand();
+    let ph = 0;
+    mix(d, render(.08, t => { ph += TAU * f * (1 + 2.5 * t) / SR; return Math.sin(ph) * env(t, .0015, 70); }), at, g);
+  }
+  mix(d, air(6, 120).map((v, i) => v * Math.sin(Math.PI * i / (6 * SR)) * 6), 9, .6);
+  write('amb1', d, { loop: true, kbps: 48, peak: .3 });
+}
+{ // Desert: warm gusting wind, and a little sand lifted by each gust
+  const gust = t => .55 + .45 * Math.sin(t * .9 + .5) * Math.sin(t * .37 + 2);
+  const d = highpass(air(22, t => 300 * (1 + .45 * Math.sin(t * .7) + .25 * Math.sin(t * 1.9 + 1))), 80).map((v, i) => v * gust(i / SR));
+  const sand = highpass(air(22, 2400), 1000);
+  for (let i = 0; i < d.length; i++) d[i] += sand[i] * .18 * gust(i / SR) ** 2;
+  write('amb2', d, { loop: true, kbps: 48, peak: .6 });
+}
+{ // Ice: an airy whistle over low wind, and deep ice groans
+  const whistle = lowpass2(bandpass(noiseBuf(22), t => 900 + 300 * Math.sin(t * .5), 6), 1500);
+  const d = highpass(air(22, t => 240 * (1 + .4 * Math.sin(t * .6))), 70);
+  for (let i = 0; i < d.length; i++) d[i] += whistle[i] * (.35 + .15 * Math.sin(i / SR * .3));
+  for (const at of [3, 11, 17]) mix(d, render(1.6, t => Math.sin(TAU * (70 + 30 * Math.sin(t * 3)) * t) * Math.sin(Math.PI * t / 1.6) * .5), at, .2);
+  write('amb3', d, { loop: true, kbps: 48, peak: .55 });
+}
+{ // Void: deep drone, a slow glassy shimmer and distant signals
+  const d = render(22, t => (Math.sin(TAU * 41 * t) + Math.sin(TAU * 41.5 * t) * .8 + Math.sin(TAU * 61.5 * t) * .5 + Math.sin(TAU * 82 * t) * .3) * (.7 + .3 * Math.sin(t * .6)) * .3);
+  // Three high tones drifting in and out (the shimmer was band-passed noise near 3–4.5 kHz, a hiss).
+  for (const [f, rate, at] of [[2093, .11, 0], [2637, .07, 2], [3136, .09, 4]]) {
+    mix(d, render(22, t => Math.sin(TAU * f * t + .6 * Math.sin(TAU * .3 * t + at)) * (.5 - .5 * Math.cos(TAU * rate * t + at)) ** 2 * .035), 0, 1);
+  }
+  for (const at of [4, 13]) {
+    let ph = 0;
+    mix(d, render(1, t => { ph += TAU * (900 + 300 * Math.sin(t * 9)) / SR; return Math.sin(ph) * Math.sin(Math.PI * t) * .06; }), at, 1);
+  }
+  write('amb4', reverb(d, .4), { loop: true, kbps: 48, peak: .6 });
+}
+
+// Mirror turns, one per world (the Void's servo is unchanged): a soft slide on the pivot and a settled knock.
+{ const d = buffer(.5); mix(d, slide(.3, 400, 1100), 0, .6); mix(d, knock(196, .24, 22), .27, .5); mix(d, knock(587, .14, 36), .27, .6); write('rotate0', d, { peak: .75 }); }
+{ // Wood and vine: a low creak, a brush of leaves, a wooden knock
+  const d = buffer(.55);
+  const creak = k => swell(k) * (.75 + .25 * Math.sin(TAU * 5 * k));
+  mix(d, glideTone(.34, 220, 280, creak), 0, .25); mix(d, glideTone(.34, 440, 560, creak), 0, .18); mix(d, glideTone(.34, 660, 840, creak), 0, .08);
+  mix(d, slide(.28, 900, 2000), .02, .3);
+  mix(d, knock(262, .22, 24), .32, .6); mix(d, knock(523, .12, 40), .32, .55);
+  write('rotate1', d, { peak: .75 });
+}
+{ // Sandstone: a slide over sand and a warm, settled thud
+  const d = buffer(.55);
+  mix(d, slide(.34, 300, 900), 0, .8); mix(d, slide(.26, 1100, 2200), .03, .2);
+  mix(d, knock(147, .26, 20), .31, .55); mix(d, knock(440, .12, 36), .31, .55);
+  write('rotate2', d, { peak: .75 });
+}
+{ // Ice: a cool glassy slide and three small crystal glints as it settles
+  const d = buffer(.55);
+  mix(d, slide(.3, 700, 1700), 0, .45);
+  [98, 102, 105].forEach((n, i) => mix(d, cleanBell(midi(n), .3, 14, .4), .25 + i * .035, .16));
+  mix(d, knock(294, .2, 26), .27, .5);
+  write('rotate3', d, { peak: .7 });
+}
+{ // Cannon turn: three soft ratchet clicks over a turning-stone rumble, settling with a clunk
+  const d = buffer(.7);
+  mix(d, slide(.42, 220, 600), 0, .8);
+  for (const at of [.06, .16, .26]) mix(d, knock(980, .06, 75), at, .45);
+  mix(d, knock(90, .3, 18), .4, 1);
+  mix(d, render(.25, t => Math.sin(TAU * 520 * t) * env(t, .003, 18) * .25), .42, 1);
+  write('turn', d, { peak: .8 });
+}
+{ // The light takes its new path: a soft rising glint of glass (it plays on every move, so it stays light and short)
+  const d = buffer(.6);
+  mix(d, glideTone(.3, 1500, 2300, swell), 0, .3);
+  [91, 96].forEach((n, i) => mix(d, cleanBell(midi(n), .5, 9, .5), .03 + i * .045, .28));
+  write('zap', reverb(d, .3), { peak: .35 });
+}
+{ const d = buffer(.9); [0, 1, 2].forEach(i => mix(d, cleanBell(midi(91 + i * 4), .7, 6), i * .03, .4)); write('split', reverb(d, .3), { peak: .7 }); }
+// A crystal lights, the stars of the results, and the level fanfare: as before, with band-limited bells.
+{ const d = buffer(1.6); [84, 88, 91, 96].forEach((n, i) => mix(d, cleanBell(midi(n), 1.3, 3), i * .055, .55)); mix(d, cleanSparkle(1.1, 2600, 8), .05, .4); write('crystal', reverb(d, .35), { peak: .8 }); }
+[76, 79, 84].forEach((n, i) => {
+  const d = buffer(1.2);
+  mix(d, cleanBell(midi(n + 12), 1.1, 3.5), 0, .6); mix(d, cleanBell(midi(n + 19), 1, 4), .015, .25); mix(d, cleanSparkle(.6, 3000 + i * 400, 6), .03, .35);
+  // Lower than the first versions' .85, which encoded star2 over full scale (it clipped when decoded).
+  write(`star${i + 1}`, reverb(d, .3), { peak: .75 });
+});
+{
+  const d = buffer(3.2);
+  [[72, 0], [76, .12], [79, .24], [84, .36], [79, .54], [84, .66]].forEach(([n, at]) => { mix(d, marimba(midi(n), .6), at, .8); mix(d, cleanBell(midi(n + 12), .9, 4), at, .25); });
+  [60, 64, 67, 72, 76].forEach(n => mix(d, pad([midi(n)], 2.3), .82, 1.6));
+  [72, 76, 79, 84].forEach(n => mix(d, cleanBell(midi(n), 2.2, 1.6), .82, .4));
+  mix(d, bass(midi(48), 1.6), .82, .9); mix(d, kick(), .82, .6); mix(d, cleanSparkle(1.6, 2400, 14), .9, .45);
+  write('win', reverb(d, .4), { peak: .9 });
+}
+{ // Charge: the solved board gathers light into its crystals before they bloom
+  const len = 1.9, d = buffer(len);
+  mix(d, render(len, t => {
+    const k = t / len, f = 220 + 660 * k * k;
+    return (Math.sin(TAU * f * t) * .3 + Math.sin(TAU * f * 1.5 * t) * .15 + Math.sin(TAU * f * 2 * t) * .1) * k * k * Math.min(1, (len - t) * 12);
+  }), 0, .8);
+  mix(d, render(len, t => { const k = t / len; return (Math.sin(TAU * 2637 * t) + Math.sin(TAU * 3136 * t) * .6) * k ** 3 * (.6 + .4 * Math.sin(TAU * 7 * t)) * Math.min(1, (len - t) * 12) * .05; }), 0, 1);
+  for (let i = 0; i < 9; i++) mix(d, cleanBell(midi(84 + (i % 5) * 2), .4, 9, .6), .3 + i * .16, .08 + i * .015);
+  write('charge', reverb(d, .3), { peak: .6 });
+}
+write('type', render(.04, t => Math.sin(TAU * 1900 * t) * env(t, .0015, 160) * .5), { peak: .4 });
+{ // An ice floe glides along its track: a smooth skate that slows, then a soft knock and a crystal click as it stops
+  const d = buffer(.75);
+  mix(d, lowpass2(bandpass(noiseBuf(.5), t => 1700 - 900 * t / .5, 1.6), 2600).map((v, i) => v * Math.sin(Math.PI * Math.min(1, i / SR / .5)) * 1.3), 0, 1);
+  mix(d, knock(240, .2, 25), .46, .55);
+  for (const [at, n] of [[.47, 100], [.51, 103]]) mix(d, cleanBell(midi(n), .25, 16, .4), at, .12);
+  write('glide', reverb(d, .3), { peak: .7 });
+}
+{ // Grind (strain and swing, 1.2 s): stone grinding over a wooden groan and a low emerald hum that swells and fades
+  const len = 1.3, d = buffer(len);
+  const shape = t => Math.min(1, t / .18) * Math.min(1, Math.max(0, (len - .08 - t) / .3));
+  mix(d, air(len, 650).map((v, i) => { const t = i / SR; return v * shape(t) * (1 + .5 * Math.sin(t * 38)) * 4; }), 0, 1);
+  let ph = 0;
+  mix(d, render(len, t => {
+    ph += TAU * (120 + 55 * Math.sin(t * 9) + 30 * Math.sin(t * 23)) / SR;
+    return (Math.sin(ph) * .4 + Math.sin(2 * ph) * .3 + Math.sin(4 * ph) * .2 + Math.sin(6 * ph) * .1) * shape(t);
+  }), 0, .3);
+  mix(d, render(len, t => (Math.sin(TAU * 98 * t) + Math.sin(TAU * 147 * t) * .6 + Math.sin(TAU * 196.4 * t) * .25) * (.75 + .25 * Math.sin(t * 11)) * shape(t) * .3), 0, 1);
+  write('grind', reverb(d, .3, 1.3), { peak: .7 });
 }
 console.log(`Generated ${fs.readdirSync(out).length} MP3 files, ${(total / 1024).toFixed(0)} KB total`);

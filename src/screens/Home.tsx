@@ -16,7 +16,7 @@ export interface HomeExtra { icon: IconName; caption: string; label: string; onP
 
 export function Home({ total, next, chapter, hearts, onPlay, onMap, onSettings, extras, adFree, onAdFree }: {
   total: number; next: number; chapter: number; hearts: number[]; onPlay: () => void; onMap: () => void; onSettings: () => void; extras: HomeExtra[];
-  /** Remove Ads, in the top bar away from PLAY: the crossed-out ads icon with its price (a tap opens Google Play), and a quiet badge once owned. */
+  /** Remove Ads, in the top bar away from PLAY: the crossed-out ads icon right after the shards (a tap opens Google Play), and a quiet badge once owned. */
   adFree?: AdFree; onAdFree: () => void;
 }) {
   const { width, height } = useWindowDimensions();
@@ -31,14 +31,18 @@ export function Home({ total, next, chapter, hearts, onPlay, onMap, onSettings, 
     <View style={[s.top, { paddingTop: safe.top + 8 }]} pointerEvents="box-none">
       <RoundButton icon="settings-sharp" label="Settings" size={46} onPress={onSettings} />
       <View style={s.middle} pointerEvents="box-none">
+        {/* On a narrow phone the label wraps after "TEST BUILD ·" (the other spaces don't break). */}
         {UNLOCK_ALL && <View style={s.testBadge} pointerEvents="none" accessibilityLabel="Test build, every level is open">
           <GameIcon name="flask" size={13} color="#ffe08a" />
-          <GameText size={10.5} font="bold" strokeWidth={0} style={{ color: '#fff', letterSpacing: 1.2 }}>TEST BUILD · ALL OPEN</GameText>
+          <GameText size={10.5} font="bold" strokeWidth={0} containerStyle={{ flexShrink: 1 }} style={{ color: '#fff', letterSpacing: 1.2 }}>
+            {'TEST\u00a0BUILD\u00a0· ALL\u00a0OPEN'}</GameText>
         </View>}
-        {adFree?.owned ? <PopIn from={.8}><AdFreeBadge /></PopIn>
-          : adFree ? <PopIn from={.8} delay={350}><AdFreeOrb price={adFree.price} busy={adFree.busy} onPress={onAdFree} /></PopIn> : null}
+        {adFree?.owned && <PopIn from={.8}><AdFreeBadge /></PopIn>}
       </View>
-      <ShardPill total={total} />
+      <View style={s.right} pointerEvents="box-none">
+        <ShardPill total={total} />
+        {adFree && !adFree.owned && <PopIn from={.8} delay={350}><AdFreeOrb price={adFree.price} busy={adFree.busy} onPress={onAdFree} /></PopIn>}
+      </View>
     </View>
     <View style={{ alignItems: 'center', marginTop: height < 720 ? -6 : 4 }} pointerEvents="none">
       <PopIn from={.6}><Logo width={logoW} /></PopIn>
@@ -67,7 +71,8 @@ export function Home({ total, next, chapter, hearts, onPlay, onMap, onSettings, 
 const s = StyleSheet.create({
   top: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 14 },
   middle: { flexShrink: 1, alignItems: 'center', gap: 6, marginHorizontal: 8 },
-  testBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12,
+  right: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  testBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12, flexShrink: 1,
     backgroundColor: '#5a3a08d8', borderWidth: 1, borderColor: '#ffd36a' },
   bottom: { alignItems: 'center', paddingHorizontal: 20 },
   hearts: { paddingHorizontal: 14, paddingVertical: 5, borderRadius: 12, backgroundColor: '#05081a99', marginBottom: 10 },

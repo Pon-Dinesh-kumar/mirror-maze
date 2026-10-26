@@ -56,7 +56,7 @@ export function useRemoveAds() {
     return () => { live = false; clearTimeout(retry); sub?.remove(); back.remove(); };
   }, [own]);
 
-  const buy = useCallback(async (): Promise<PurchaseStatus> => {
+  const purchase = useCallback(async (): Promise<PurchaseStatus> => {
     if (!PlayBilling) return 'unavailable';
     setBusy(true);
     try {
@@ -71,6 +71,13 @@ export function useRemoveAds() {
       setBusy(false);
     }
   }, [own]);
+  /**
+   * The purchase in flight. A second tap that lands before the button re-renders as busy (a slow frame) shares it:
+   * asking Google Play twice either reported a failure under the open sheet or, while Billing was still connecting,
+   * launched the sheet twice and left the first answer, and the busy button, waiting forever.
+   */
+  const buying = useRef<Promise<PurchaseStatus>>(undefined);
+  const buy = useCallback(() => (buying.current ??= purchase().finally(() => { buying.current = undefined; })), [purchase]);
   /** Asks Google Play again: 'restored', 'none' (this Play account has not bought it) or 'failed' (no connection). */
   const restore = useCallback(async (): Promise<'restored' | 'none' | 'failed'> => {
     if (!PlayBilling) return 'failed';

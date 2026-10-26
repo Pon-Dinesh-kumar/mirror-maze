@@ -85,7 +85,7 @@ npx expo start --lan # Expo Go (SDK 54) on a phone
 
 ## Build the Android APK
 
-Requires JDK 17 and the Android SDK (platform 35, build-tools 35, NDK 27.1).
+Requires JDK 17 and the Android SDK (platform 36, build-tools 36, NDK 27.1).
 
 ```powershell
 npx expo prebuild --platform android --clean
@@ -94,8 +94,9 @@ cd android
 # -> android/app/build/outputs/apk/release/app-release.apk
 ```
 
-The release build is signed with the Expo template's debug keystore. It installs directly on any device
-(sideload). Before publishing to the Play Store, sign it with your own upload key.
+Without an upload key, the release build is signed with the Expo template's debug keystore. It installs directly on any
+device (sideload). For Google Play, build a signed `.aab` with your upload key and run the preflight: see
+[docs/RELEASE.md](docs/RELEASE.md).
 
 ## Regenerating content
 

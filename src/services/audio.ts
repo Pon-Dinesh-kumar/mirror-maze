@@ -52,11 +52,26 @@ const ambience = [
   require('../../assets/audio/amb0.mp3'), require('../../assets/audio/amb1.mp3'), require('../../assets/audio/amb2.mp3'),
   require('../../assets/audio/amb3.mp3'), require('../../assets/audio/amb4.mp3'),
 ];
-export type Sfx = keyof typeof sources | 'rotate';
-const volumes: Partial<Record<keyof typeof sources, number>> = { pop: .45, whoosh: .3, zap: .22, type: .25, sizzle: .2, tick: .45, thunder1: .6, thunder2: .45, rotate0: .7, rotate1: .7, rotate2: .7, rotate3: .7, rotate4: .7, charge: .7, crystal: .55,
+type Effect = keyof typeof sources;
+export type Sfx = Effect | 'rotate';
+/** Sky, Rainforest and Desert turns are mostly low knocks a phone speaker barely plays, so they sit a little higher. */
+const volumes: Partial<Record<Effect, number>> = { pop: .45, whoosh: .3, zap: .22, type: .25, sizzle: .2, tick: .45, thunder1: .6, thunder2: .45, rotate0: .9, rotate1: .9, rotate2: .9, rotate3: .7, rotate4: .7, charge: .7, crystal: .55,
   awaken: .85, grind: .75, settle: .9, abyss: .95, swallow: .7 };
 
-const players: Partial<Record<keyof typeof sources, AudioPlayer>> = {};
+/**
+ * Up to VOICES players per effect. Asked for again while it still rings (crystals lighting one after another, quick
+ * taps), an effect starts on a free player; restarting the same one cut its last note off mid-ring.
+ */
+const VOICES = 3;
+/** The same effect asked for again within this many ms (several crystals lit in one frame) plays once: identical copies in step only add up to one louder, clipping sound. */
+const SAME_MOMENT_MS = 40;
+/** How long a voice counts as ringing until its effect's real length is known. */
+const RING_MS = 1500;
+interface Voice { player: AudioPlayer; until: number }
+const voices: Partial<Record<Effect, Voice[]>> = {};
+/** Each effect's length in ms, reported by its first player once loaded. */
+const lengths: Partial<Record<Effect, number>> = {};
+const lastStart: Partial<Record<Effect, number>> = {};
 let musicPlayer: AudioPlayer | undefined;
 let ambPlayer: AudioPlayer | undefined;
 let loaded = -1;
@@ -105,6 +120,35 @@ export function discard(p: AudioPlayer | undefined) {
   if (!p) return;
   try { p.pause(); p.remove(); p.release(); } catch (cause) { console.warn('Could not release a sound', cause); }
 }
+/** A free player for `key`: an idle one, a new one (up to VOICES), or else the one closest to the end of its sound. */
+function voiceFor(key: Effect, now: number) {
+  const pool = (voices[key] ??= []);
+  const idle = pool.find(v => v.until <= now);
+  if (idle) return idle;
+  if (pool.length < VOICES) {
+    const player = createAudioPlayer(sources[key]);
+    if (lengths[key] === undefined) {
+      const sub = player.addListener('playbackStatusUpdate', s => {
+        if (s.isLoaded && s.duration > 0) { lengths[key] = s.duration * 1000; sub.remove(); }
+      });
+    }
+    const voice = { player, until: 0 };
+    pool.push(voice);
+    return voice;
+  }
+  return pool.reduce((a, b) => (a.until <= b.until ? a : b));
+}
+/**
+ * Lets every effect go. Pausing is not enough when the game leaves the foreground: Android's expo-audio resumes every
+ * player that was playing when the app left, so a half-heard effect (or the Devourer's whole sequence) came back on
+ * return. New players are made on the next play.
+ */
+function releaseEffects() {
+  for (const key of Object.keys(voices) as Effect[]) {
+    voices[key]!.forEach(v => discard(v.player));
+    delete voices[key];
+  }
+}
 function sync() {
   try {
     const on = active && unlocked;
@@ -129,7 +173,12 @@ function sync() {
 export const audio = {
   init() { void setAudioModeAsync({ playsInSilentMode: true, shouldPlayInBackground: false }).catch(() => undefined); },
   onFailure(listener: (message: string) => void) { failureListener = listener; },
-  configure(next: typeof options, isActive: boolean) { options = next; active = isActive; sync(); },
+  configure(next: typeof options, isActive: boolean) {
+    options = next; active = isActive;
+    // Sound effects off, or the game sent away (another app, an ad): nothing keeps ringing, and nothing resumes later.
+    if (!options.sound || !active) releaseEffects();
+    sync();
+  },
   setChapter(next: number, afterScroll = false) {
     if (chapterTimer) clearTimeout(chapterTimer);
     chapterTimer = undefined;
@@ -160,20 +209,30 @@ export const audio = {
     });
   },
   /** Stops a sound effect at once (a sequence cut short by a restart or by leaving the level). */
-  stop(name: keyof typeof sources) {
-    const p = players[name];
-    if (!p) return;
-    try { p.pause(); void p.seekTo(0).catch(() => undefined); } catch (cause) { fail(cause); }
+  stop(name: Effect) {
+    for (const v of voices[name] ?? []) {
+      v.until = 0;
+      try { v.player.pause(); void v.player.seekTo(0).catch(() => undefined); } catch (cause) { fail(cause); }
+    }
   },
   unlock() { if (!unlocked) { unlocked = true; sync(); } },
   play(name: Sfx, volume = 1) {
     if (name === 'pop' || name === 'rotate' || name === 'whoosh') audio.unlock();
-    if (!options.sound || !unlocked) return;
-    const key = (name === 'rotate' ? `rotate${chapter}` : name) as keyof typeof sources;
+    // A sequence's timer firing after the game was sent away stays silent too.
+    if (!options.sound || !unlocked || !active) return;
+    const key = (name === 'rotate' ? `rotate${chapter}` : name) as Effect;
+    const now = Date.now();
+    if (now - (lastStart[key] ?? -Infinity) < SAME_MOMENT_MS) return;
+    lastStart[key] = now;
     try {
-      const p = (players[key] ??= createAudioPlayer(sources[key]));
+      const v = voiceFor(key, now);
+      const p = v.player;
+      v.until = now + (lengths[key] ?? RING_MS);
       p.volume = (volumes[key] ?? 1) * volume;
-      void p.seekTo(0).then(() => p.play()).catch(fail);
+      // Effects let go while this one was starting (sound switched off, an ad or another app took the screen) leave it
+      // silent; that is not a broken sound, so the player is not told some sounds are unavailable.
+      const kept = () => voices[key]?.includes(v) ?? false;
+      void p.seekTo(0).then(() => { if (kept()) p.play(); }).catch(cause => { if (kept()) fail(cause); });
     } catch (cause) { fail(cause); }
   },
   haptic(kind: 'tap' | 'success' | 'error' | 'heavy' = 'tap') {
@@ -191,8 +250,7 @@ export const audio = {
     hushTimer = undefined;
     if (duckTimer) clearInterval(duckTimer);
     duckTimer = undefined;
-    Object.values(players).forEach(discard);
-    for (const key of Object.keys(players)) delete players[key as keyof typeof sources];
+    releaseEffects();
     discard(musicPlayer); discard(ambPlayer);
     musicPlayer = ambPlayer = undefined;
     loaded = -1;

@@ -1,10 +1,11 @@
 import React, { ReactNode, useState } from 'react';
-import { Modal, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { Linking, Modal, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { PopIn } from '../ui/Effects';
 import { GameText } from '../ui/GameText';
 import { AdFree, AdFreeButton } from '../ui/AdFree';
 import { ChapterUI, GameIcon, IconName, Panel, RoundButton, Toggle, ToyButton, useUI } from '../ui/Toy';
 import { Settings as SettingsData } from '../services/storage';
+import { PRIVACY_POLICY_URL } from '../config/googlePlay';
 
 function Popup({ title, onClose, children, chapter }: { title: string; onClose: () => void; children: ReactNode; chapter: number }) {
   const { width } = useWindowDimensions();
@@ -88,6 +89,10 @@ export function SettingsModal({ chapter, settings, onChange, onClose, onReset, o
         <ToyButton title="RESET" icon="trash" tint="red" height={44} fontSize={15} style={{ flex: 1 }} label="Reset progress" onPress={() => setConfirm(true)} />
       </View>
       <GameText size={11} font="semi" strokeWidth={0} style={{ color: '#aab4cc', marginTop: 14 }}>Mirror Maze · The Last Lightkeeper · v4.0</GameText>
+      {PRIVACY_POLICY_URL ? <Pressable accessibilityRole="link" accessibilityLabel="Privacy policy" hitSlop={14} style={{ alignSelf: 'center', marginTop: 6 }}
+        onPress={() => void Linking.openURL(PRIVACY_POLICY_URL).catch(cause => console.warn('Could not open the privacy policy', cause))}>
+        <GameText size={11} font="semi" strokeWidth={0} style={{ color: '#aab4cc', textDecorationLine: 'underline' }}>Privacy policy</GameText>
+      </Pressable> : null}
     </View>}
   </Popup>;
 }

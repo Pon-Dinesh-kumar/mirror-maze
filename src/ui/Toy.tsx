@@ -75,7 +75,7 @@ export function ToyButton({ title, onPress, icon, tint = 'primary', height = 58,
             <LinearGradient colors={['#ffffff55', '#ffffff00']} style={[s.gloss, { borderTopLeftRadius: radius, borderTopRightRadius: radius, height: height * .48 }]} />
             <View style={[s.facet, { borderRadius: radius - 2 }]} />
             {icon && <GameIcon name={icon} size={height * .4} />}
-            {title && <GameText size={fontSize ?? height * .34} font="cinemaBold" strokeWidth={0} style={s.ctaText}>{title}</GameText>}
+            {title && <GameText size={fontSize ?? height * .34} font="cinemaBold" strokeWidth={0} style={s.ctaText} fit>{title}</GameText>}
           </LinearGradient>
         </LinearGradient>
       </Animated.View>}

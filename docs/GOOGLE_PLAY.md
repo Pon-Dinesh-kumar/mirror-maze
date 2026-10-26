@@ -7,7 +7,7 @@ from the AdMob and Play Console dashboards (steps below):
 | Feature | Before setup | After setup |
 | --- | --- | --- |
 | Interstitial ads | Google's **test** ads (labelled "Test Ad") | Your ad unit, real revenue |
-| Remove Ads | Home, Pause and Settings show it as "One-time purchase" (no price). Google Play answers "unavailable" until the app and product exist in Play Console | Your localised price on Home, Pause and Settings; a tap opens Google Play's purchase sheet |
+| Remove Ads | Pause and Settings show it as "One-time purchase" (no price). Google Play answers "unavailable" until the app and product exist in Play Console | Your localised price on Pause and Settings (Home shows the icon only); a tap opens Google Play's purchase sheet |
 | Play Games (achievements, leaderboard, cloud save) | Hidden. The SDK never starts | Automatic sign-in, Awards/Ranks on Home, cloud save |
 
 All IDs live in two places:
@@ -25,10 +25,11 @@ break), never during play or a cutscene. The count restarts only when an ad real
 no fill) the next Continue tries again. In the EEA/UK, Google's consent form appears at launch; Settings > AD PRIVACY
 reopens it (shown only where the law requires it). Ads are rated PG. Development builds always use test ads.
 
-**Remove Ads.** A one-time, non-consumable product (`remove_ads`), offered to players as "Go ad-free forever". The price
-is on every entry point before the tap, and a tap opens Google Play's purchase sheet directly (no screen of the game's
-own in between). All three call the same purchase handler:
-- **Home:** the crossed-out ads icon in the top bar, with the price beside it.
+**Remove Ads.** A one-time, non-consumable product (`remove_ads`), offered to players as "Go ad-free forever". Pause and
+Settings show the price before the tap, and a tap opens Google Play's purchase sheet directly (no screen of the game's
+own in between). All three call the same purchase handler, and a second tap while Google Play is opening shares the
+first purchase rather than starting another:
+- **Home:** the crossed-out ads icon in the top bar, icon only (the price is in its spoken label).
 - **Pause:** a full-width "GO AD-FREE FOREVER" button at the bottom, price on it, "One-time purchase" below the title.
 - **Settings:** the same button, with RESTORE kept separate.
 
@@ -71,13 +72,16 @@ unlocked.
 
 1. Create the app: Game, Free, and **Contains ads: Yes**.
 2. Sign releases with your own upload key, not the Expo debug keystore the README build uses, and upload an `.aab`
-   (`gradlew bundleRelease`). Use the **Internal testing** track: Billing and Play Games only fully work for installs
-   from Google Play.
+   (`gradlew bundleRelease`; [RELEASE.md](RELEASE.md) has the key setup and the preflight). Use the **Internal testing**
+   track: Billing and Play Games only fully work for installs from Google Play.
 3. **App content**:
    - **Ads:** yes.
    - **Target audience:** 13+. Choosing younger ages brings in the Families policy, which needs a different ad setup.
-   - **Data safety:** AdMob collects the device or advertising ID, app interactions and diagnostics, and shares them for
-     advertising. Google Play Billing collects purchase history. Play Games collects game progress.
+   - **Data safety:** AdMob collects the IP address (approximate location), app interactions, diagnostics and the
+     advertising ID / app set ID, and shares them for advertising, analytics and fraud prevention, encrypted in transit
+     ([Google's list](https://developers.google.com/admob/android/privacy/play-data-disclosure)). Google Play Billing
+     collects purchase history. Play Games (once enabled) collects game progress. The full draft is in
+     [RELEASE_READINESS.md](RELEASE_READINESS.md).
    - **Content rating:** fill in the questionnaire.
 
 ### 3. Remove Ads product
@@ -126,7 +130,7 @@ unlocked.
 ### 5. Test pass (internal testing install)
 
 - [ ] A test ad appears after the 3rd level when tapping NEXT LEVEL, and the next level plays normally after it closes.
-- [ ] Home (beside the icon), Pause and Settings show your price. Each opens Google Play's purchase sheet at once, and
+- [ ] Pause and Settings show your price. Each opens Google Play's purchase sheet at once, and
   cancelling it returns to the same screen. Buy it with a license tester: ads stop, Home shows "AD-FREE ACTIVE" and
   Settings says "Ad-free active".
 - [ ] Reinstall: ads stay removed. Settings > RESTORE confirms it.
